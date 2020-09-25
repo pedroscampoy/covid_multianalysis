@@ -14,7 +14,7 @@ import datetime
 import scipy.cluster.hierarchy as shc
 import scipy.spatial.distance as ssd #pdist
 
-from misc import check_file_exists, import_to_pandas, check_create_dir
+from misc import import_to_pandas, check_create_dir
 from vcf_process import import_VCF42_cohort_pandas
 
 
@@ -97,34 +97,6 @@ def import_tsv_pandas(vcf_file, sep='\t'):
            
     return dataframe
 
-def recheck_variant(format_sample):
-    #GT:AD:DP:GQ:PGT:PID:PL:PS
-    list_format = format_sample.split(":")
-    gt = list_format[0]
-    #gt0 = gt[0]
-    #gt1 = gt[1]
-    ad = list_format[1]
-    ref = int(ad.split(',')[0])
-    alt = max(int(x) for x in ad.split(',')[0:])
-    
-    if gt == "0/0":
-        value = 0
-    elif gt == "1/1":
-        value = 1
-    else:
-        if gt == "./.":
-            value = "!"
-        elif "2" in gt:
-            value = "!"
-        elif (ref > alt):
-            value = 0
-        elif (alt > ref):
-            value = 1
-        else:
-            value = "!"
-            
-    return value
-
 def recheck_variant_mpileup(reference_file, whole_position, sample, bam_folder):
     #Identify correct bam
     for root, _, files in os.walk(bam_folder):
@@ -156,58 +128,7 @@ def recheck_variant_mpileup(reference_file, whole_position, sample, bam_folder):
         return 0
     else:
         return 1
-
-def identify_nongenotyped_mpileup(reference_file, whole_position, sample_list_matrix, list_presence, bam_folder):
-    """
-    Replace nongenotyped ("!") with the most abundant genotype
-    """
-    #mode = max(set(list_presence), key = list_presence.count)
-    
-    count_ng = list_presence.count("!")
-    sample_number = len(list_presence)
-    
-    if "!" not in list_presence:
-        return list_presence
-    elif count_ng/sample_number > 0.2:
-        return 'delete'
-    else:
-        indices_ng = [i for i, x in enumerate(list_presence) if x == "!"]
-        for index in indices_ng:
-            #logger.info('identify_nongenotyped_mpileup:')
-            #logger.info(reference_file, whole_position, sample_list_matrix[index], bam_folder)
-            list_presence[index] = recheck_variant_mpileup(reference_file, whole_position, sample_list_matrix[index], bam_folder)
-        #new_list_presence = [mode if x == "!" else x for x in list_presence]
-        return list_presence
-
-def extract_recalibrate_params(pipeline_folder, reference=False):
-    cohort_file = ""
-    pipeline_folder = os.path.abspath(pipeline_folder)
-    for root, dirs, _ in os.walk(pipeline_folder):
-        #logger.info(pipeline_folder, root)
-        if root == pipeline_folder:
-            for directory in dirs:
-                subfolder = os.path.join(root, directory)
-                if subfolder.endswith("/VCF"):
-                    for file_vcf in os.listdir(subfolder):
-                        if file_vcf.endswith("cohort.combined.hf.vcf"):
-                            cohort_file = os.path.join(subfolder, file_vcf)
-                            if reference == False:
-                                with open(cohort_file, 'r') as f:
-                                    for line in f:
-                                        if line.startswith("#"):
-                                            if "--reference " in line:
-                                                reference_file = line.split("--reference ")[1].strip().split(" ")[0].strip()
-                            else:
-                                reference_file = reference
-                elif subfolder.endswith("/Bam"):
-                    bam_folder = subfolder
-    if cohort_file:
-        return (cohort_file, bam_folder, reference_file)
-    else:
-        logger.info(RED + "cohort.combined.hf.vcf not found, wait for pipeline to finish" + END_FORMATTING)
-        sys.exit(1)
-                    
-
+"""
 def recalibrate_ddbb_vcf(snp_matrix_ddbb, vcf_cohort, bam_folder, reference_file):
     
     vcf_cohort = os.path.abspath(vcf_cohort)
@@ -248,9 +169,9 @@ def recalibrate_ddbb_vcf(snp_matrix_ddbb, vcf_cohort, bam_folder, reference_file
     df_matrix.drop(index=list_index_dropped, axis=0, inplace=True)
     
     return df_matrix
+"""
 
-
-def ddtb_add(input_folder, output_filename, recalibrate=False, sample_filter=False, vcf_suffix=".combined.hf.ALL.final.vcf" ):
+def ddtb_add(input_folder, output_filename, recalibrate=False, sample_filter=False, vcf_suffix=".tsv" ):
     directory = os.path.abspath(input_folder)
     output_filename = os.path.abspath(output_filename)
 
@@ -302,7 +223,7 @@ def ddtb_add(input_folder, output_filename, recalibrate=False, sample_filter=Fal
                 file = os.path.join(directory, filename) #Whole file path
                 check_file_exists(file) #Manage file[s]. Check if file exist and is greater than 0
 
-                new_sample = import_VCF4_to_pandas(file) #Import files in annotated vcf format
+                new_sample = import_tsv_pandas(file) #Import files in annotated tsv format
 
                 #Check if sample exist
                 ######################
@@ -317,7 +238,7 @@ def ddtb_add(input_folder, output_filename, recalibrate=False, sample_filter=Fal
                     ########################
                     for _, row in new_sample.iterrows():
 
-                        position = ('|').join([row['#CHROM'],row['REF'],str(row['POS']),row['ALT']])
+                        position = ('|').join([row['REGION'],row['REF'],str(row['POS']),row['ALT']])
                         
                         if position not in final_ddbb["Position"].values:
                             positions_added.append(position) #Count new positions for stats
@@ -353,29 +274,9 @@ def ddtb_add(input_folder, output_filename, recalibrate=False, sample_filter=Fal
     #final_ddbb = final_ddbb.reset_index(drop=True)
 
     logger.info("Final database now contains %s rows and %s columns" % final_ddbb.shape)
-    if recalibrate == False:
-        output_filename = output_filename + ".tsv"
-        final_ddbb.to_csv(output_filename, sep='\t', index=False)
-    else:
-        recalibrate = os.path.abspath(recalibrate)
-        if os.path.exists(recalibrate):
-            recalibrate_params = extract_recalibrate_params(recalibrate)
-            logger.info("\n" + MAGENTA + "Recalibration selected" + END_FORMATTING)
-            logger.info(output_filename)
-            output_filename = output_filename + ".revised.tsv"
-
-            final_ddbb_revised = recalibrate_ddbb_vcf(final_ddbb, recalibrate_params[0], recalibrate_params[1], recalibrate_params[2])
-            """
-            if args.reference and args.reference != False:
-                final_ddbb_revised = recalibrate_ddbb_vcf(final_ddbb, recalibrate_params[0], recalibrate_params[1], args.reference)
-                
-            else:
-                final_ddbb_revised = recalibrate_ddbb_vcf(final_ddbb, recalibrate_params[0], recalibrate_params[1], recalibrate_params[2])
-            """
-            final_ddbb_revised.to_csv(output_filename, sep='\t', index=False)
-        else:
-            logger.info("The directory supplied for recalculation does not exixt")
-            sys.exit(1)
+    
+    output_filename = output_filename + ".tsv"
+    final_ddbb.to_csv(output_filename, sep='\t', index=False)
     logger.info(output_filename)
 
     #Create small report with basic count
@@ -385,7 +286,7 @@ def ddtb_add(input_folder, output_filename, recalibrate=False, sample_filter=Fal
     logger.info(GREEN + "Added " + str(new_samples) + " samples out of " + str(all_samples) + END_FORMATTING + "\n")
 
 
-    ###########################COMPARE FUNCTIONS#####################################################################
+###########################COMPARE FUNCTIONS#####################################################################
 
 def compare_snp_columns(sample1, sample2, df):
     jaccard_similarity = accuracy_score(df[sample1], df[sample2]) #similarities between colums
