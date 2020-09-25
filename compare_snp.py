@@ -48,6 +48,17 @@ def get_arguments():
 
     return arguments
 
+def check_file_exists(file_name):
+    """
+        Check file exist and is not 0 Kb, if not program exit.
+    """
+    file_info = os.stat(file_name) #Retrieve the file info to check if has size > 0
+
+    if not os.path.isfile(file_name) or file_info.st_size == 0:
+        logger.info(RED + BOLD + "File: %s not found or empty\n" % file_name + END_FORMATTING)
+        sys.exit(1)
+    return os.path.isfile(file_name)
+
 def blank_database():
     new_pandas_ddtb = pd.DataFrame(columns=['Position','N', 'Samples'])
     return new_pandas_ddtb
@@ -72,6 +83,16 @@ def import_VCF4_to_pandas(vcf_file, sep='\t'):
         
     else:
         logger.info("This vcf file is not v4.2")
+        sys.exit(1)
+           
+    return dataframe
+
+def import_tsv_pandas(vcf_file, sep='\t'):
+    if check_file_exists(vcf_file):
+        dataframe = pd.read_csv(vcf_file, sep=sep, header=0)
+        dataframe['POS'] = dataframe['POS'].astype(int)
+    else:
+        logger.info("This vcf file is empty or does not exixt")
         sys.exit(1)
            
     return dataframe

@@ -42,7 +42,6 @@ def check_file_exists(file_name):
         sys.exit(1)
     return os.path.isfile(file_name)
 
-
 def check_remove_file(file_name):
     """
     Check file exist and remove it.
@@ -93,23 +92,6 @@ def extract_sample(R1_file, R2_file):
 
     return sample_name
 
-
-def obtain_output_dir(args, subfolder=None):
-    """
-    Returns output folder and output file depending on the output supplied.
-    """
-    if args.output != None:
-        output_dir_arg = os.path.abspath(args.output)
-        output_dir = os.path.join(output_dir_arg, subfolder)
-    elif args.r1_file:
-        r1 = os.path.abspath(args.r1_file)
-        output_dir_arg = os.path.dirname(r1)
-        output_dir = os.path.join(output_dir_arg, subfolder)
-    elif args.input_bam:
-        bam = os.path.abspath(args.input_bam)
-        output_dir_arg = os.path.dirname(bam)
-        output_dir = os.path.join(output_dir_arg, subfolder)
-    return output_dir
     
 def check_create_dir(path):
     #exists = os.path.isfile(path)
@@ -118,13 +100,6 @@ def check_create_dir(path):
         pass
     else:
         os.mkdir(path)
-
-def get_picard_path():
-    type_route = subprocess.run(["whereis", "picard.jar"],stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True, universal_newlines=True) 
-    regex = re.compile(r'\/.*\.jar')
-    picard_route = re.search(regex, type_route.stdout)
-
-    return picard_route.group()
 
 
 def get_snpeff_path():
@@ -141,7 +116,7 @@ def get_snpeff_path():
     return final_path_config
 
 
-def execute_subprocess(cmd):
+def execute_subprocess(cmd, isShell=False):
     """
     https://crashcourse.housegordon.org/python-subprocess.html
     https://docs.python.org/3/library/subprocess.html 
@@ -162,7 +137,7 @@ def execute_subprocess(cmd):
         param = cmd[1:]
     
     try:
-        command = subprocess.run(cmd , stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        command = subprocess.run(cmd , shell=isShell, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if command.returncode == 0:
             logger.debug(GREEN + DIM + "Program %s successfully executed" % prog + END_FORMATTING)
         else:
@@ -259,28 +234,28 @@ def file_to_list(file_name):
     return list_F
 
 
-def get_coverage(args, input_bam, output_fmt="-d"):
-    """
-    #Calculate genome coverage at each position using bedtools and an input bam
-    https://bedtools.readthedocs.io/en/latest/content/tools/genomecov.html
-    """
-    #reference = os.path.abspath(args.reference)
+# def get_coverage(args, input_bam, output_fmt="-d"):
+#     """
+#     #Calculate genome coverage at each position using bedtools and an input bam
+#     https://bedtools.readthedocs.io/en/latest/content/tools/genomecov.html
+#     """
+#     #reference = os.path.abspath(args.reference)
 
-    input_bam = os.path.abspath(input_bam)
-    input_bam_base = os.path.basename(input_bam)
+#     input_bam = os.path.abspath(input_bam)
+#     input_bam_base = os.path.basename(input_bam)
 
-    sample = input_bam_base.split(".")[0]
-    output_dir = obtain_output_dir(args, "Coverage")
-    sample_name = sample + ".cov"
-    output_file = os.path.join(output_dir, sample_name)
+#     sample = input_bam_base.split(".")[0]
+#     output_dir = obtain_output_dir(args, "Coverage")
+#     sample_name = sample + ".cov"
+#     output_file = os.path.join(output_dir, sample_name)
 
-    check_create_dir(output_dir)
+#     check_create_dir(output_dir)
 
-    #execute_subprocess(cmd)
-    with open(output_file, "w") as outfile:
-        #calculate coverage and save it in th eoutput file
-        subprocess.run(["genomeCoverageBed", "-ibam", input_bam, output_fmt], 
-        stdout=outfile, stderr=subprocess.PIPE, check=True, universal_newlines=True)
+#     #execute_subprocess(cmd)
+#     with open(output_file, "w") as outfile:
+#         #calculate coverage and save it in th eoutput file
+#         subprocess.run(["genomeCoverageBed", "-ibam", input_bam, output_fmt], 
+#         stdout=outfile, stderr=subprocess.PIPE, check=True, universal_newlines=True)
 
 def calculate_cov_stats(file_cov):
     df = pd.read_csv(file_cov, sep="\t", names=["#CHROM", "POS", "COV" ])

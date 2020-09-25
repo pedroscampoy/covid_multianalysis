@@ -13,14 +13,12 @@ import datetime
 
 
 # Local application imports
-from misc import check_file_exists, extract_sample, obtain_output_dir, check_create_dir, execute_subprocess, \
+from misc import check_file_exists, extract_sample, check_create_dir, execute_subprocess, \
     extract_read_list, file_to_list, get_coverage, obtain_group_cov_stats, remove_low_covered_mixed, clean_unwanted_files, \
     check_reanalysis, vcf_stats
 from preprocessing import fastqc_quality, fastp_trimming, format_html_image
 from pe_mapper import bwa_mapping, sam_to_index_bam
-from bam_recall import picard_dictionary, samtools_faidx, picard_markdup, haplotype_caller, call_variants, \
-    select_variants, hard_filter, combine_gvcf, select_pass, select_pass_variants, recalibrate_bam, \
-    samples_from_vcf,split_vcf_saples, combine_vcf
+from bam_variant import picard_dictionary, samtools_faidx, picard_markdup, ivar_trim, ivar_variants, ivar_consensus, replace_consensus_header
 from vcf_process import vcf_consensus_filter, highly_hetz_to_bed, poorly_covered_to_bed, non_genotyped_to_bed
 from annotation import replace_reference, snpeff_annotation, final_annotation, create_report, css_report
 from species_determination import mash_screen, extract_species_from_screen
@@ -40,6 +38,7 @@ REVISION:
 
 
 TODO:
+    Adapt check_reanalysis
     Check file with multiple arguments
     Check program is installed (dependencies)
 ================================================================
@@ -72,14 +71,16 @@ def main():
 
     def get_arguments():
 
-        parser = argparse.ArgumentParser(prog = 'snptb.py', description= 'Pipeline to call variants (SNVs) with any non model organism. Specialised in SARS-CoV-2')
+        parser = argparse.ArgumentParser(prog = 'covidma.py', description= 'Pipeline to call variants (SNVs) with any non model organism. Specialised in SARS-CoV-2')
         
         input_group = parser.add_argument_group('Input', 'Input parameters')
 
         input_group.add_argument('-i', '--input', dest="input_dir", metavar="input_directory", type=str, required=True, help='REQUIRED.Input directory containing all fast[aq] files')
         input_group.add_argument('-r', '--reference', metavar="reference", type=str, required=True, help='REQUIRED. File to map against')
+        input_group.add_argument('-a', '--annotation', metavar="annotation", type=str, required=True, help='REQUIRED. gff3 file to annotate variants')
         input_group.add_argument('-s', '--sample', metavar="sample", type=str, required=False, help='Sample to identify further files')
         input_group.add_argument('-S', '--sample_list', type=str, required=False, help='Sample names to analyse only in the file supplied')
+        input_group.add_argument('-p', '--primers', type=str, default='/home/laura/COVID/primers/nCoV-2019.bed', required=False, help='Bed file including primers to trim')
         input_group.add_argument('-B', '--annot_bed', type=str, required=False, action='append', help='bed file to annotate')
         input_group.add_argument('-V', '--annot_vcf', type=str, required=False, action='append', help='vcf file to annotate')
         
@@ -129,13 +130,17 @@ def main():
     ######################################################################
     output = os.path.abspath(args.output)
     group_name = output.split("/")[-1]
+    reference = os.path.abspath(args.reference)
+    annotation = os.path.abspath(args.annotation)
 
     #LOGGING
     #Create log file with date and time
     right_now = str(datetime.datetime.now())
     right_now_full = "_".join(right_now.split(" "))
     log_filename = group_name + "_" + right_now_full + ".log"
-    log_full_path = os.path.join(output, log_filename)
+    log_folder = os.path.join(output, 'Logs')
+    check_create_dir(log_folder)
+    log_full_path = os.path.join(log_folder, log_filename)
 
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
@@ -193,23 +198,23 @@ def main():
 
     #Output related
     out_qc_dir = os.path.join(output, "Quality")
-    out_qc_pre_dir = os.path.join(out_qc_dir, "raw")
-    out_qc_post_dir = os.path.join(out_qc_dir, "processed")
+    out_qc_pre_dir = os.path.join(out_qc_dir, "raw") #subfolder
+    out_qc_post_dir = os.path.join(out_qc_dir, "processed") #subfolder
     out_trim_dir = os.path.join(output, "Trimmed")
     out_map_dir = os.path.join(output, "Bam")
     out_cov_dir = os.path.join(output, "Coverage")
-    out_gvcfr_dir = os.path.join(output, "GVCF_recal")
-    out_vcfr_dir = os.path.join(output, "VCF_recal")
-    out_gvcf_dir = os.path.join(output, "GVCF")
-    out_vcf_dir = os.path.join(output, "VCF")
+    out_variant_dir = os.path.join(output, "Variants")
+    out_variant_ivar_dir = os.path.join(out_variant_dir, "ivar_raw")
+    out_consensus_dir = os.path.join(output, "Consensus")
+
     out_annot_dir = os.path.join(output, "Annotation")
     out_species_dir = os.path.join(output, "Species")
     #out_uncovered_dir = os.path.join(output, "Uncovered")
     out_compare_dir = os.path.join(output, "Compare")
     out_table_dir = os.path.join(output, "Table")
 
-    highly_hetz_bed = os.path.join(out_vcf_dir, "highly_hetz.bed")
-    non_genotyped_bed = os.path.join(out_vcf_dir, "non_genotyped.bed")
+    highly_hetz_bed = os.path.join(out_variant_dir, "highly_hetz.bed")
+    non_genotyped_bed = os.path.join(out_variant_dir, "non_genotyped.bed")
     poorly_covered_bed = os.path.join(out_cov_dir, "poorly_covered.bed")
 
     for r1_file, r2_file in zip(r1, r2):
@@ -221,10 +226,10 @@ def main():
             sample_number = str(sample_list_F.index(sample) + 1)
             sample_total = str(len(sample_list_F))
 
-            out_bqsr_name = sample + ".bqsr.bam"
-            output_bqsr_file = os.path.join(out_map_dir, out_bqsr_name)
+            out_markdup_trimmed_name = sample + ".rg.markdup.trimmed.sorted.bam"
+            output_markdup_trimmed_file = os.path.join(out_map_dir, out_markdup_trimmed_name)
 
-            if not os.path.isfile(output_bqsr_file):
+            if not os.path.isfile(output_markdup_trimmed_file):
             
                 args.r1_file = r1_file
                 args.r2_file = r2_file
@@ -297,19 +302,69 @@ def main():
                 out_map_name = sample + ".rg.sorted.bam"
                 output_map_file = os.path.join(out_map_dir, out_map_name)
 
-                out_markdup_name = sample + ".rg.markdup.sorted.bam"
-                output_markdup_file = os.path.join(out_map_dir, out_markdup_name)
-
-                if os.path.isfile(output_map_file) or os.path.isfile(output_markdup_file):
+                if os.path.isfile(output_map_file):
                     logger.info(YELLOW + DIM + output_map_file + " EXIST\nOmmiting Mapping for sample " + sample + END_FORMATTING)
                 else:
                     logger.info(GREEN + "Mapping sample " + sample + END_FORMATTING)
-                    logger.info("R1: " + output_trimming_file_r1 + "\nR2: " + output_trimming_file_r2 + "\nReference: " + args.reference)
-                    bwa_mapping(output_trimming_file_r1, output_trimming_file_r2, args.reference, sample, out_map_dir, threads=args.threads)
+                    logger.info("R1: " + output_trimming_file_r1 + "\nR2: " + output_trimming_file_r2 + "\nReference: " + reference)
+                    bwa_mapping(output_trimming_file_r1, output_trimming_file_r2, reference, sample, out_map_dir, threads=args.threads)
                     sam_to_index_bam(sample, out_map_dir, output_trimming_file_r1, threads=args.threads)
 
 
+                #MARK DUPLICATES WITH PICARDTOOLS ###################
+                #####################################################
+                out_markdup_name = sample + ".rg.markdup.sorted.bam"
+                output_markdup_file = os.path.join(out_map_dir, out_markdup_name)
 
+                if os.path.isfile(output_markdup_file):
+                    logger.info(YELLOW + DIM + output_markdup_file + " EXIST\nOmmiting Duplucate Mark for sample " + sample + END_FORMATTING)
+                else:
+                    logger.info(GREEN + "Marking Dupes in sample " + sample + END_FORMATTING)
+                    logger.info("Input Bam: " + output_map_file)
+                    picard_markdup(output_map_file)
+                
+                #TRIM PRIMERS WITH ivar trim ########################
+                #####################################################
+
+                if os.path.isfile(output_markdup_trimmed_file):
+                    logger.info(YELLOW + DIM + output_markdup_trimmed_file + " EXIST\nOmmiting Duplucate Mark for sample " + sample + END_FORMATTING)
+                else:
+                    logger.info(GREEN + "Trimming primers in sample " + sample + END_FORMATTING)
+                    logger.info("Input Bam: " + output_markdup_file)
+                    ivar_trim(output_markdup_file, args.primers, sample, min_length=30, min_quality=20, sliding_window_width=4)
+            else:
+                logger.info(YELLOW + DIM + output_markdup_trimmed_file + " EXIST\nOmmiting BAM mapping and BAM manipulation in sample " + sample + END_FORMATTING)
+            
+            ########################END OF MAPPING AND BAM MANIPULATION#####################################################################
+            ################################################################################################################################
+            
+            #VARIANT CALLING WTIH ivar variants##################
+            #####################################################
+            check_create_dir(out_variant_dir)
+            out_ivar_variant_name = sample + ".tsv"
+            out_ivar_variant_file = os.path.join(out_variant_ivar_dir, out_ivar_variant_name)
+
+            if os.path.isfile(out_ivar_variant_file):
+                logger.info(YELLOW + DIM + out_ivar_variant_file + " EXIST\nOmmiting Variant call for  sample " + sample + END_FORMATTING)
+            else:
+                logger.info(GREEN + "Calling variants with ivar in sample " + sample + END_FORMATTING)
+                ivar_variants(reference, output_markdup_trimmed_file, out_variant_dir, sample, annotation, min_quality=20, min_frequency_threshold=0.05, min_depth=20)
+            
+            #CREATE CONSENSUS with ivar consensus##################
+            #####################################################
+            check_create_dir(out_consensus_dir)
+            out_ivar_consensus_name = sample + ".fa"
+            out_ivar_consensus_file = os.path.join(out_consensus_dir, out_ivar_consensus_name)
+
+            if os.path.isfile(out_ivar_consensus_file):
+                logger.info(YELLOW + DIM + out_ivar_consensus_file + " EXIST\nOmmiting Consensus for  sample " + sample + END_FORMATTING)
+            else:
+                logger.info(GREEN + "Creating consensus with ivar in sample " + sample + END_FORMATTING)
+                ivar_consensus(output_markdup_trimmed_file, out_consensus_dir, sample, min_quality=20, min_frequency_threshold=0.8, min_depth=20, uncovered_character='N')
+                logger.info(GREEN + "Replacing consensus header in " + sample + END_FORMATTING)
+                replace_consensus_header(out_ivar_consensus_file)
+
+            
     ###################fastqc OUTPUT FORMAT FOR COMPARISON
     ######################################################
     logger.info(GREEN + "Creating summary report for quality result " + END_FORMATTING)
@@ -318,20 +373,7 @@ def main():
     """
                 
                 
-                #MARK DUPLICATES WITH PICARDTOOLS ###################
-                #####################################################
-                #TO DO: remove output_map_file and include markdup in previous step checking for existence of .rg.markdup.sorted.bam
-                out_markdup_name = sample + ".rg.markdup.sorted.bam"
-                output_markdup_file = os.path.join(out_map_dir, out_markdup_name)
-
-                args.input_bam = output_map_file
-
-                if os.path.isfile(output_markdup_file):
-                    logger.info(YELLOW + DIM + output_markdup_file + " EXIST\nOmmiting Duplucate Mark for sample " + sample + END_FORMATTING)
-                else:
-                    logger.info(GREEN + "Marking Dupes in sample " + sample + END_FORMATTING)
-                    logger.info("Input Bam: " + args.input_bam)
-                    picard_markdup(args)
+                
                 
                 #CALCULATE COVERAGE FOR EACH POSITION##################
                 #######################################################
