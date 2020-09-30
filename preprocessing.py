@@ -3,7 +3,11 @@ import sys
 import re
 import argparse
 import subprocess
+import logging
 from misc import check_file_exists, check_create_dir, execute_subprocess
+
+logger = logging.getLogger()
+
 
 """
 =============================================================
@@ -62,12 +66,31 @@ def fastp_trimming(r1, r2, sample, output_dir, threads=6, min_qual=20, window_si
     execute_subprocess(cmd)
 
 ###################FORMAT TO COMPARE FASTQC OUTPUT
+def extract_sample_from_fastq(R_file):
+    """
+    Extract sample from R1, R2 files.
+    """
+    basename_R = os.path.basename(R_file)
+  
+    long_suffix = re.search('_S.*', basename_R)
+    dot_suffix = re.search('.R$', basename_R)
+    
+    if long_suffix:
+        match = long_suffix.group()
+        sample_name = basename_R.split(match)[0]
+    elif dot_suffix:
+        match = dot_suffix.group()
+        sample_name = basename_R.split(match)[0]
+    else:
+        sample_name = basename_R
 
-def extract_processed_html(fastqc_folder, sample, suffix):
+    return str(sample_name)
+
+def extract_processed_html(fastqc_folder, sample, read_type):
     for root, _, files in os.walk(fastqc_folder):
         for name in files:
             fileName = os.path.join(root, name)
-            if 'Quality/processed' in fileName and name.endswith(suffix) and name.startswith(sample):
+            if ('Quality/processed' in fileName) and (read_type in name) and (name.endswith('fastqc.html') and (name.startswith(sample))):
                 return fileName
 
 def extract_files_html(fastqc_folder):
@@ -77,10 +100,13 @@ def extract_files_html(fastqc_folder):
         for name in files:
             fileName = os.path.join(root, name)
             if 'Quality/raw' in fileName and name.endswith('fastqc.html'):
-                sample = name.split('.')[0]
-                suffix = ('.').join(name.split('.')[-2:])
+                sample = extract_sample_from_fastq(fileName)
+                if "_R1_" in name:
+                    read_type = '_R1_'
+                elif "_R2_" in name:
+                    read_type = '_R2_'
                 raw_html = fileName
-                processed_html = extract_processed_html(fastqc_folder, sample, suffix)
+                processed_html = extract_processed_html(fastqc_folder, sample, read_type)
                 html_pairs[count] = [raw_html, processed_html]
                 count = count + 1
     return html_pairs
@@ -88,8 +114,7 @@ def extract_files_html(fastqc_folder):
 def extract_quality_graph(html_file):
     with open(html_file, 'r') as f:
         content = f.read()
-        image_tag = re.search(r'<img class="indented" src=.*alt="Per base quality graph" width="1020" height="600"/>', content)
-
+        image_tag = re.search(r'<img class="indented" src=.*alt="Per base quality graph" .+?/>', content)
     return image_tag.group(0)
 
 def extract_basic_stats(html_file):
@@ -122,6 +147,8 @@ def format_html_image(output_folder):
     output_file = os.path.join(output_folder, 'fastq_image_report.html')
     all_images_tables = ''
     for number, pair in files.items():
+        logger.debug(number)
+        logger.debug(pair)
         div_structure = """
         <div class="container">
         <table>

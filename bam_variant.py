@@ -5,7 +5,7 @@ import logging
 import argparse
 import subprocess
 import shutil
-from misc import check_file_exists, obtain_output_dir, check_create_dir, execute_subprocess, check_remove_file, \
+from misc import check_file_exists, check_create_dir, execute_subprocess, check_remove_file, \
     longest_common_suffix
 
 logger = logging.getLogger()
@@ -241,6 +241,16 @@ def replace_consensus_header(input_fasta):
         f.seek(0)
         f.write(content)
         f.truncate()
+
+def create_bamstat(input_bam, output_dir, sample, threads=8):
+    output_file = os.path.join(output_dir, sample + ".bamstats")
+    cmd = "samtools flagstat --threads {} {} > {}".format(str(threads), input_bam, output_file)
+    execute_subprocess(cmd, isShell=True)
+
+def create_coverage(input_bam, output_dir, sample):
+    output_file = os.path.join(output_dir, sample + ".cov")
+    cmd = "samtools depth -aa {} > {}".format(input_bam, output_file)
+    execute_subprocess(cmd, isShell=True)
 
 if __name__ == '__main__':
     logger.info("#################### BAM RECALL #########################")

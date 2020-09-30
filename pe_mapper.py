@@ -5,7 +5,7 @@ import gzip
 import argparse
 #import argcomplete
 import subprocess
-from misc import check_file_exists, extract_sample, obtain_output_dir, check_create_dir, execute_subprocess, check_remove_file
+from misc import check_file_exists, extract_sample, check_create_dir, execute_subprocess, check_remove_file
 
 
 """
@@ -26,7 +26,8 @@ TODO
 END_OF_HEADER
 ================================================================
 """
-    
+
+"""
 def bowtie2_mapping(args):
     r1 = os.path.abspath(args.r1_file)
     r2 = os.path.abspath(args.r2_file)
@@ -50,7 +51,7 @@ def bowtie2_mapping(args):
     #bowtie map
     cmd_map = ["bowtie2", "-1", r1, "-2", r2, "-S", output_file, "-q", "--very-sensitive-local", "-p", str(args.threads), "-x", reference, extensive_command]
     execute_subprocess(cmd_map)
-
+"""
 
 
 def bwa_mapping(r1, r2, reference, sample, output_dir, threads=8):

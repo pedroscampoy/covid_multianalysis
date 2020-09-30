@@ -211,14 +211,6 @@ def extract_read_list(input_dir):
     
     return r1_list, r2_list
 
-
-def extract_sample_list():
-    #sample_list = []
-    # for r1, r2 in zip(r1_list, r2_list):
-    #     sample = extract_sample(r1, r2)
-    #     sample_list.append(sample)
-    pass
-
 def return_codon_position(number):
     position = number % 3
     if position == 0:
@@ -233,77 +225,51 @@ def file_to_list(file_name):
             list_F.append(line.strip())
     return list_F
 
-
-# def get_coverage(args, input_bam, output_fmt="-d"):
-#     """
-#     #Calculate genome coverage at each position using bedtools and an input bam
-#     https://bedtools.readthedocs.io/en/latest/content/tools/genomecov.html
-#     """
-#     #reference = os.path.abspath(args.reference)
-
-#     input_bam = os.path.abspath(input_bam)
-#     input_bam_base = os.path.basename(input_bam)
-
-#     sample = input_bam_base.split(".")[0]
-#     output_dir = obtain_output_dir(args, "Coverage")
-#     sample_name = sample + ".cov"
-#     output_file = os.path.join(output_dir, sample_name)
-
-#     check_create_dir(output_dir)
-
-#     #execute_subprocess(cmd)
-#     with open(output_file, "w") as outfile:
-#         #calculate coverage and save it in th eoutput file
-#         subprocess.run(["genomeCoverageBed", "-ibam", input_bam, output_fmt], 
-#         stdout=outfile, stderr=subprocess.PIPE, check=True, universal_newlines=True)
-
 def calculate_cov_stats(file_cov):
     df = pd.read_csv(file_cov, sep="\t", names=["#CHROM", "POS", "COV" ])
     unmmaped_pos = len(df.POS[df.COV == 0].tolist())
     pos_0_10 = len(df.POS[(df.COV > 0) & (df.COV <= 10)].tolist())
     pos_10_20 = len(df.POS[(df.COV > 10) & (df.COV <= 20)].tolist())
     pos_high20 = len(df.POS[(df.COV > 20)].tolist())
+    pos_high50 = len(df.POS[(df.COV > 50)].tolist())
+    pos_high100 = len(df.POS[(df.COV >= 100)].tolist())
+    pos_high500 = len(df.POS[(df.COV >= 500)].tolist())
+    pos_high1000 = len(df.POS[(df.COV >= 1000)].tolist())
     total_pos = df.shape[0]
     unmmaped_prop = "%.2f" % ((unmmaped_pos/total_pos)*100)
     prop_0_10 = "%.2f" % ((pos_0_10/total_pos)*100)
     prop_10_20 = "%.2f" % ((pos_10_20/total_pos)*100)
     prop_high20 = "%.2f" % ((pos_high20/total_pos)*100)
+    prop_high50 = "%.2f" % ((pos_high50/total_pos)*100)
+    prop_high100 = "%.2f" % ((pos_high100/total_pos)*100)
+    prop_high500 = "%.2f" % ((pos_high500/total_pos)*100)
+    prop_high1000 = "%.2f" % ((pos_high1000/total_pos)*100)
     
     mean_cov = "%.2f" % (df.COV.mean())
     
-    return mean_cov, unmmaped_prop, prop_0_10, prop_10_20, prop_high20
+    return mean_cov, unmmaped_prop, prop_0_10, prop_10_20, prop_high20, prop_high50, prop_high100, prop_high500, prop_high1000
 
-def obtain_group_cov_stats(directory, low_cov_threshold=20, unmmaped_threshold=20):
+def obtain_group_cov_stats(directory):
     directory_path = os.path.abspath(directory)
     
     if directory_path.endswith("Coverage"):
-        file_name = directory_path.split("/")[-2]
+        group_name = directory_path.split("/")[-3]
     else:
-        file_name = "samples"
+        group_name = "samples"
 
-    output_file_name = file_name + ".coverage.tab"
-    output_file = os.path.join(directory_path,output_file_name)
+    output_group_name = group_name + ".coverage.summary.tab"
+    output_file = os.path.join(directory_path, output_group_name)
 
-    saples_low_covered = []
-
-    with open(output_file, "w") as outfile:
-            outfile.write("#SAMPLE" + "\t" + "MEAN_COV" + "\t" + "UNMMAPED_PROP" + "\t" + "COV1-10X" + "\t" + "COV10-20X" + "\t" + "COV>20X" + "\t" + "\n")
-            #print("#SAMPLE" + "\t" + "MEAN_COV" + "\t" + "UNMMAPED_PROP" + "\t" + "COV1-10X" + "\t" + "COV10-20X" + "\t" + "COV>20X" + "\t" + "\n")
+    with open(output_file, "w+") as outfile:
+            outfile.write("#SAMPLE" + "\t" + "MEAN_COV" + "\t" + "UNMMAPED_PROP" + "\t" + "COV1-10X" + "\t" + "COV10-20X" + "\t" + "COV>20X" + "\t" + "COV>50X" + "\t" + "COV>100X" + "\t" + "COV>500X" + "\t" + "COV>1000X" + "\n")
             for root, _, files in os.walk(directory_path):
                 for name in files:
                     filename = os.path.join(root, name)
                     file_name_cov = os.path.basename(filename)
                     sample = file_name_cov.split(".")[0]
-                    if filename.endswith("cov") and (os.path.getsize(filename) > 0):
+                    if filename.endswith(".cov") and (os.path.getsize(filename) > 0):
                         coverage_stats = calculate_cov_stats(filename)
-                        mean_cov = coverage_stats[0]
-                        unmmaped_prop = coverage_stats[1]
-                        if float(mean_cov) < low_cov_threshold or float(unmmaped_prop) > unmmaped_threshold:
-                            saples_low_covered.append(sample)
                         outfile.write(sample + "\t" + ("\t").join(coverage_stats) + "\n")
-                        #print((sample + "\t" + ("\t").join(coverage_stats)) + "\n")
-
-    return saples_low_covered
 
 def edit_sample_list(file_list, sample_list):
     with open(file_list, 'r') as f:

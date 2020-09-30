@@ -14,12 +14,13 @@ import datetime
 
 # Local application imports
 from misc import check_file_exists, extract_sample, check_create_dir, execute_subprocess, \
-    extract_read_list, file_to_list, get_coverage, obtain_group_cov_stats, remove_low_covered_mixed, clean_unwanted_files, \
+    extract_read_list, file_to_list, obtain_group_cov_stats, remove_low_covered_mixed, clean_unwanted_files, \
     check_reanalysis, vcf_stats
 from preprocessing import fastqc_quality, fastp_trimming, format_html_image
 from pe_mapper import bwa_mapping, sam_to_index_bam
-from bam_variant import picard_dictionary, samtools_faidx, picard_markdup, ivar_trim, ivar_variants, ivar_consensus, replace_consensus_header
-from vcf_process import vcf_consensus_filter, highly_hetz_to_bed, poorly_covered_to_bed, non_genotyped_to_bed
+from bam_variant import picard_dictionary, samtools_faidx, picard_markdup, ivar_trim, ivar_variants, ivar_consensus, \
+    replace_consensus_header, create_bamstat, create_coverage
+from vcf_process import filter_tsv_variants, vcf_consensus_filter, highly_hetz_to_bed, poorly_covered_to_bed, non_genotyped_to_bed
 from annotation import replace_reference, snpeff_annotation, final_annotation, create_report, css_report
 from species_determination import mash_screen, extract_species_from_screen
 from compare_snp import ddtb_add, ddtb_compare
@@ -33,7 +34,7 @@ INSTITUTION:IiSGM
 AUTHOR: Pedro J. Sola (pedroscampoy@gmail.com)
 d^v^b
 VERSION=0.1
-CREATED: 22 Sep 2019
+CREATED: 22 Sep 2020
 REVISION: 
 
 
@@ -202,20 +203,19 @@ def main():
     out_qc_post_dir = os.path.join(out_qc_dir, "processed") #subfolder
     out_trim_dir = os.path.join(output, "Trimmed")
     out_map_dir = os.path.join(output, "Bam")
-    out_cov_dir = os.path.join(output, "Coverage")
     out_variant_dir = os.path.join(output, "Variants")
-    out_variant_ivar_dir = os.path.join(out_variant_dir, "ivar_raw")
+    out_variant_ivar_dir = os.path.join(out_variant_dir, "ivar_raw") #subfolder
+    out_filtered_ivar_dir = os.path.join(out_variant_dir, "ivar_filtered") #subfolder
     out_consensus_dir = os.path.join(output, "Consensus")
 
-    out_annot_dir = os.path.join(output, "Annotation")
-    out_species_dir = os.path.join(output, "Species")
-    #out_uncovered_dir = os.path.join(output, "Uncovered")
+    out_stats_dir = os.path.join(output, "Stats")
+    out_stats_bamstats_dir = os.path.join(out_stats_dir, "Bamstats") #subfolder
+    out_stats_coverage_dir = os.path.join(out_stats_dir, "Coverage") #subfolder
     out_compare_dir = os.path.join(output, "Compare")
-    out_table_dir = os.path.join(output, "Table")
 
-    highly_hetz_bed = os.path.join(out_variant_dir, "highly_hetz.bed")
-    non_genotyped_bed = os.path.join(out_variant_dir, "non_genotyped.bed")
-    poorly_covered_bed = os.path.join(out_cov_dir, "poorly_covered.bed")
+    #highly_hetz_bed = os.path.join(out_variant_dir, "highly_hetz.bed")
+    #non_genotyped_bed = os.path.join(out_variant_dir, "non_genotyped.bed")
+    #poorly_covered_bed = os.path.join(out_cov_dir, "poorly_covered.bed")
 
     for r1_file, r2_file in zip(r1, r2):
         #EXtract sample name
@@ -348,10 +348,22 @@ def main():
                 logger.info(YELLOW + DIM + out_ivar_variant_file + " EXIST\nOmmiting Variant call for  sample " + sample + END_FORMATTING)
             else:
                 logger.info(GREEN + "Calling variants with ivar in sample " + sample + END_FORMATTING)
-                ivar_variants(reference, output_markdup_trimmed_file, out_variant_dir, sample, annotation, min_quality=20, min_frequency_threshold=0.05, min_depth=20)
+                ivar_variants(reference, output_markdup_trimmed_file, out_variant_dir, sample, annotation, min_quality=20, min_frequency_threshold=0.05, min_depth=5)
+
+
+            #VARIANT FILTERING ##################################
+            #####################################################
+            check_create_dir(out_filtered_ivar_dir)
+            out_ivar_filtered_file = os.path.join(out_filtered_ivar_dir, out_ivar_variant_name)
+
+            if os.path.isfile(out_ivar_filtered_file):
+                logger.info(YELLOW + DIM + out_ivar_filtered_file + " EXIST\nOmmiting Variant filtering for  sample " + sample + END_FORMATTING)
+            else:
+                logger.info(GREEN + "Filtering variants in sample " + sample + END_FORMATTING)
+                filter_tsv_variants(out_ivar_variant_file, out_filtered_ivar_dir, min_frequency=0.8, min_total_depth=10, min_alt_dp=4, is_pass=True, only_snp=True)
             
             #CREATE CONSENSUS with ivar consensus##################
-            #####################################################
+            #######################################################
             check_create_dir(out_consensus_dir)
             out_ivar_consensus_name = sample + ".fa"
             out_ivar_consensus_file = os.path.join(out_consensus_dir, out_ivar_consensus_name)
@@ -364,11 +376,61 @@ def main():
                 logger.info(GREEN + "Replacing consensus header in " + sample + END_FORMATTING)
                 replace_consensus_header(out_ivar_consensus_file)
 
+
+            ########################CREATE STATS AND QUALITY FILTERS########################################################################
+            ################################################################################################################################
+            #CREATE Bamstats#######################################
+            #######################################################
+            check_create_dir(out_stats_dir)
+            check_create_dir(out_stats_bamstats_dir)
+            out_bamstats_name = sample + ".bamstats"
+            out_bamstats_file = os.path.join(out_stats_bamstats_dir, out_bamstats_name)
+
+            if os.path.isfile(out_bamstats_file):
+                logger.info(YELLOW + DIM + out_bamstats_file + " EXIST\nOmmiting Bamstats for  sample " + sample + END_FORMATTING)
+            else:
+                logger.info(GREEN + "Creating bamstats in sample " + sample + END_FORMATTING)
+                create_bamstat(output_markdup_trimmed_file, out_stats_bamstats_dir, sample, threads=args.threads)
+
+            #CREATE Bamstats#######################################
+            #######################################################
+            check_create_dir(out_stats_coverage_dir)
+            out_coverage_name = sample + ".cov"
+            out_coverage_file = os.path.join(out_stats_coverage_dir, out_coverage_name)
+
+            if os.path.isfile(out_coverage_file):
+                logger.info(YELLOW + DIM + out_coverage_file + " EXIST\nOmmiting Bamstats for  sample " + sample + END_FORMATTING)
+            else:
+                logger.info(GREEN + "Creating coverage in sample " + sample + END_FORMATTING)
+                create_coverage(output_markdup_trimmed_file, out_stats_coverage_dir, sample)
+
             
+    
     ###################fastqc OUTPUT FORMAT FOR COMPARISON
     ######################################################
-    logger.info(GREEN + "Creating summary report for quality result " + END_FORMATTING)
-    format_html_image(out_qc_dir)
+    #logger.info(GREEN + "Creating summary report for quality result " + END_FORMATTING)
+    #format_html_image(out_qc_dir)
+
+    ###############################coverage OUTPUT SUMMARY
+    ######################################################
+    logger.info(GREEN + "Creating summary report for coverage result " + END_FORMATTING)
+    obtain_group_cov_stats(out_stats_coverage_dir)
+
+    ################SNP COMPARISON using tsv variant files
+    ######################################################
+    # logger.info("\n\n" + BLUE + BOLD + "STARTING COMPARISON IN GROUP: " + group_name + END_FORMATTING + "\n")
+
+    # check_create_dir(out_compare_dir)
+    # folder_compare = today + "_" + group_name
+    # path_compare = os.path.join(out_compare_dir, folder_compare)
+    # check_create_dir(path_compare)
+    # full_path_compare = os.path.join(path_compare, group_name)
+    # compare_snp_matrix = full_path_compare + ".tsv"
+
+    # ddtb_add(out_filtered_ivar_dir, full_path_compare)
+    # ddtb_compare(compare_snp_matrix)
+
+    # logger.info("\n\n" + MAGENTA + BOLD + "COMPARING FINISHED IN GROUP: " + group_name + END_FORMATTING + "\n")
 
     """
                 

@@ -9,11 +9,28 @@ import numpy as np
 import re
 import gzip
 import subprocess
-from misc import check_file_exists, obtain_output_dir, check_create_dir, execute_subprocess, check_remove_file, \
+from misc import check_file_exists, check_create_dir, execute_subprocess, check_remove_file, \
 list_to_bed, count_lines
 
 
 logger = logging.getLogger()
+
+def filter_tsv_variants(tsv_file, output_filtered, min_frequency=0.8, min_total_depth=20, min_alt_dp=4, is_pass=True, only_snp=True):
+    input_file_name = os.path.basename(tsv_file)
+    input_file = os.path.abspath(tsv_file)
+    output_file = os.path.join(output_filtered, input_file_name)
+
+    df = pd.read_csv(input_file, sep='\t')
+    filtered_df = df[(df.PASS == is_pass) &
+                    (df.TOTAL_DP >= min_total_depth) &
+                    (df.ALT_DP >= min_alt_dp) &
+                    (df.ALT_FREQ >= min_frequency)]
+    if only_snp == True:
+        final_df = filtered_df[~(filtered_df.ALT.str.startswith('+') | filtered_df.ALT.str.startswith('-'))]
+        final_df.to_csv(output_file, sep='\t', index=False)
+    else:
+        filtered_df.to_csv(output_file, sep='\t', index=False)
+    
 
 
 def calculate_ALT_AD(row):
@@ -303,59 +320,6 @@ def add_indel_distance(vcf_df, max_length=False):
 
     return vcf_df
 
-def add_window_distance_legacy(vcf_df, window_size=10):
-    """
-    DEPRECATED
-    Add a column indicating the maximum number of SNPs in a windows of 10
-    """
-    list_pos = vcf_df.POS.to_list() #all positions
-    set_pos = set(list_pos) #to set for later comparing
-    max_pos = max(vcf_df.POS.to_list()) #max to iter over positions (independent from reference)
-
-    all_list = list(range(1, max_pos + 1)) #create a list to slide one by one
-    df_header = "window_" + str(window_size)
-
-    #Create sets
-    set_2 = set()
-    set_3 = set()
-    set_4 = set()
-    set_5 = set()
-    
-    sets = [set_2, set_3, set_4, set_5]
-    
-    #Slide over windows
-    for i in range(0,max_pos,1):
-        window_pos = all_list[i:i+window_size] #This splits the list in windows of determined length
-        set_window_pos = set(window_pos)
-        #How many known positions are in every window for later clasification
-        num_conglomerate = set_pos & set_window_pos
-        
-        if len(num_conglomerate) > 4:
-            set_5.update(num_conglomerate)
-        elif len(num_conglomerate) == 4:
-            set_4.update(num_conglomerate)
-        elif len(num_conglomerate) == 3:
-            set_3.update(num_conglomerate)
-        elif len(num_conglomerate) == 2:
-            set_2.update(num_conglomerate)
-    #Remove positions in a higher number of sets
-    for set_num in range(0, len(sets)):
-        if set_num < (len(sets) - 1):
-            sets[set_num] = sets[set_num] - sets[set_num + 1]
-
-    for index, _ in vcf_df.iterrows():
-        if vcf_df.loc[index,'POS'] in sets[0]:
-            vcf_df.loc[index, df_header] = 2
-        elif vcf_df.loc[index,'POS'] in sets[1]:
-            vcf_df.loc[index, df_header] = 3
-        elif vcf_df.loc[index,'POS'] in sets[2]:
-            vcf_df.loc[index, df_header] = 4
-        elif vcf_df.loc[index,'POS'] in sets[3]:
-            vcf_df.loc[index, df_header] = 5
-        else:
-            vcf_df.loc[index, df_header] = 1
-            
-    vcf_df[df_header] = vcf_df[df_header].astype(int)
 
 def add_window_distance(vcf_df, window_size=10):
     """

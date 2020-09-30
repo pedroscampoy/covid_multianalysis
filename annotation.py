@@ -10,7 +10,7 @@ import re
 import subprocess
 from tabulate import tabulate
 from misc import get_snpeff_path, check_create_dir
-from vcf_process import bed_to_df,bed_to_df, add_bed_info, annotate_bed_s, obtain_output_dir, calculate_ALT_AD, calculate_true_ALT
+from vcf_process import bed_to_df,bed_to_df, add_bed_info, annotate_bed_s, calculate_ALT_AD, calculate_true_ALT
 
 logger = logging.getLogger()
 

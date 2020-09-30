@@ -38,7 +38,8 @@ def get_arguments():
     parser = argparse.ArgumentParser(prog = 'snptb.py', description= 'Pipeline to call variants (SNVs) with any non model organism. Specialised in Mycobacterium Tuberculosis')
     
     parser.add_argument('-i', '--input', dest="input_dir", metavar="input_directory", type=str, required=True, help='REQUIRED.Input directory containing all vcf files')
-    parser.add_argument('-s', '--sample_list', type=str, required=False, help='File with sample names to analyse instead of all samples')
+    parser.add_argument('-s', '--sample_list', default=False, required=False, help='File with sample names to analyse instead of all samples')
+    parser.add_argument('-d', '--distance', default=0, required=False, help='Minimun distance to cluster groups after comparison')
     parser.add_argument("-r", "--recalibrate", required= False, type=str, default=False, help='Pipeline folder where Bam and VCF subfolders are present')
     parser.add_argument("-R", "--reference", required= False, type=str, default=False, help='Reference fasta file used in original variant calling')
 
@@ -128,50 +129,8 @@ def recheck_variant_mpileup(reference_file, whole_position, sample, bam_folder):
         return 0
     else:
         return 1
-"""
-def recalibrate_ddbb_vcf(snp_matrix_ddbb, vcf_cohort, bam_folder, reference_file):
-    
-    vcf_cohort = os.path.abspath(vcf_cohort)
-    #snp_matrix_ddbb = os.path.abspath(snp_matrix_ddbb)
-    
-    df_matrix = snp_matrix_ddbb
-    df_cohort = import_VCF42_cohort_pandas(vcf_cohort)
-    
-    sample_list_matrix = df_matrix.columns[3:]
-    n_samples = len(sample_list_matrix)
-    #sample_list_cohort = df_cohort.columns.tolist()[9:]
-    
-    list_index_dropped = []
-    #Iterate over non unanimous positions 
-    for index, data_row in df_matrix[df_matrix.N < n_samples].iloc[:,3:].iterrows():
-        #Extract its position
-        whole_position = df_matrix.loc[index,"Position"]
-        row_position = int(whole_position.split('|')[2])
-        row_reference = whole_position.split('|')[0]
-        logger.info('ROW POSITION ' + str(row_position))
-        #Use enumerate to retrieve column index (column ondex + 3)
-        presence_row = [recheck_variant(df_cohort.loc[((df_cohort.POS == row_position) & (df_cohort['#CHROM'] == row_reference)), df_matrix.columns[n + 3]].tolist()[0]) for n,x in enumerate(data_row)]
-        logger.info(presence_row)
-        #Resolve non genotyped using gvcf files
 
-        new_presence_row = identify_nongenotyped_mpileup(reference_file, whole_position, sample_list_matrix, presence_row, bam_folder)
-        logger.info(new_presence_row)
-        #find positions with 20% of nongenotyped and delete them OR
-        #reasign positions without nongenotyped positions 
-        if new_presence_row == 'delete':
-            list_index_dropped.append(index)
-        else:
-            df_matrix.iloc[index, 3:] = new_presence_row
-            df_matrix.loc[index, 'N'] = sum(new_presence_row)
-        #logger.info(new_presence_row)
-        #logger.info("\n")
-    #Remove all rows at once to avoid interfering with index during for loop
-    df_matrix.drop(index=list_index_dropped, axis=0, inplace=True)
-    
-    return df_matrix
-"""
-
-def ddtb_add(input_folder, output_filename, recalibrate=False, sample_filter=False, vcf_suffix=".tsv" ):
+def ddtb_add(input_folder, output_filename, sample_filter=False, vcf_suffix=".tsv" ):
     directory = os.path.abspath(input_folder)
     output_filename = os.path.abspath(output_filename)
 
@@ -183,10 +142,9 @@ def ddtb_add(input_folder, output_filename, recalibrate=False, sample_filter=Fal
     final_ddbb = blank_database()
     sample_filter_list = []
 
-
     #Handle sample filter
     if sample_filter == False:
-        sample_filter_list = [x.split(".")[0] for x in os.listdir(input_folder) if x.endswith(vcf_suffix)]
+        sample_filter_list = [x.split(".")[0] for x in os.listdir(directory) if x.endswith(vcf_suffix)]
     else:
         if os.path.isfile(sample_filter):
             with open(sample_filter, 'r') as f:
@@ -284,6 +242,125 @@ def ddtb_add(input_folder, output_filename, recalibrate=False, sample_filter=Fal
             
     logger.info("\n" + GREEN + "Position check Finished" + END_FORMATTING)
     logger.info(GREEN + "Added " + str(new_samples) + " samples out of " + str(all_samples) + END_FORMATTING + "\n")
+
+###########################MATRIX TO CLUSTER FUNCTIONS###########################################################
+
+def pairwise_to_cluster(pw,threshold = 0):
+    groups = {}
+    columns = pw.columns.tolist()
+    sorted_df = pw[(pw[columns[0]] != pw[columns[1]]) & (pw[columns[2]] <= threshold)].sort_values(by=[columns[2]])
+    
+    def rename_dict_clusters(cluster_dict):
+        reordered_dict = {}
+        for i, k in enumerate(list(cluster_dict)):
+            reordered_dict[i] = cluster_dict[k]
+        return reordered_dict
+    
+    def regroup_clusters(list_keys, groups_dict, both_samples_list):
+        #sum previous clusters
+        list_keys.sort()
+        new_cluster = sum([groups_dict[key] for key in list_keys], [])
+        #add new cluster
+        cluster_asign = list(set(new_cluster + both_samples_list))
+        #Remove duped cluster
+        first_cluster = list_keys[0]
+        groups_dict[first_cluster] = cluster_asign
+        rest_cluster = list_keys[1:]
+        for key in rest_cluster:
+            del groups_dict[key]
+        groups_dict = rename_dict_clusters(groups_dict)
+        return groups_dict
+        
+    for _, row in sorted_df.iterrows():
+        group_number = len(groups)
+        sample_1 = str(row[0])
+        sample_2 = str(row[1])
+        both_samples_list = row[0:2].tolist()
+                
+        if group_number == 0:
+            groups[group_number] = both_samples_list
+        
+        all_samples_dict = sum(groups.values(), [])
+                
+        if sample_1 in all_samples_dict or sample_2 in all_samples_dict:
+            #extract cluster which have the new samples
+            key_with_sample = {key for (key,value) in groups.items() if (sample_1 in value or sample_2 in value)}
+            
+            cluster_with_sample = list(key_with_sample)
+            cluster_with_sample_name = cluster_with_sample[0]
+            number_of_shared_clusters = len(key_with_sample)
+            if number_of_shared_clusters > 1:
+                groups = regroup_clusters(cluster_with_sample, groups, both_samples_list)
+            else:
+                groups[cluster_with_sample_name] = list(set(groups[cluster_with_sample_name] + both_samples_list))
+        else:
+            groups[group_number] = both_samples_list
+            
+    for _, row in pw[(pw[pw.columns[0]] != pw[pw.columns[1]]) & (pw[pw.columns[2]] > threshold)].iterrows():
+        sample_1 = str(row[0])
+        sample_2 = str(row[1])
+        all_samples_dict = sum(groups.values(), [])
+        if sample_1 not in all_samples_dict:
+            group_number = len(groups)
+            groups[group_number] = [sample_1]
+        
+        if sample_2 not in all_samples_dict:
+            group_number = len(groups)
+            groups[group_number] = [sample_2]
+            
+    cluster_df = pd.DataFrame(groups.values(),index=list(groups))
+    
+    cluster_df_return = cluster_df.stack().droplevel(1).reset_index().rename(columns={'index': 'group', 0: 'id'})
+            
+    return cluster_df_return
+
+def calculate_N(row):
+    return len(row.samples)
+
+def calculate_mean_distance(row, df):
+    if row.N > 1:
+        list_sample = row.samples
+        dataframe = df.loc[list_sample,list_sample]
+        stacked_df = dataframe.stack()
+        mean_distance = stacked_df.mean(skipna = True)
+        min_distance = stacked_df.min(skipna = True)
+        max_distance = stacked_df.max(skipna = True)
+        return round(mean_distance, 2), min_distance, max_distance
+    else:
+        return 'NaN'
+
+def matrix_to_cluster(pairwise_file, matrix_file, distance=0):
+    output_dir = ('/').join(pairwise_file.split('/')[0:-1])
+
+    logger.info('Reading Matrix')
+    dfdist = pd.read_csv(matrix_file, index_col=0, sep='\t', )
+    logger.info('Reading Pairwise')
+    pairwise = pd.read_csv(pairwise_file, sep="\t", names=['sample_1', 'sample_2', 'dist'])
+    logger.info('Creating Clusters')
+    clusters = pairwise_to_cluster(pairwise,threshold=distance)
+
+    cluster_summary = clusters.groupby('group')['id'].apply(list).reset_index(name='samples')
+    cluster_summary['N'] = cluster_summary.apply(calculate_N, axis=1)
+    cluster_summary = cluster_summary.sort_values(by=['N'], ascending=False)
+
+    logger.info('Reseting group number by length')
+    sorted_index = cluster_summary.index.to_list()
+    sorted_index.sort()
+    sorted_index = [x + 1 for x in sorted_index]
+    cluster_summary['group'] = sorted_index
+    cluster_summary = cluster_summary.sort_values(by=['N'], ascending=False)
+
+    cluster_summary[['mean', 'min', 'max']] = cluster_summary.apply(lambda x: calculate_mean_distance(x, dfdist), axis=1, result_type="expand")
+
+    final_cluster = cluster_summary[["group", "samples"]].explode("samples").reset_index(drop=True)
+    final_cluster = final_cluster.sort_values(by=['group'], ascending=True)
+
+    final_cluster_file = os.path.join(output_dir, "group_table_" + str(distance) + ".tsv")
+    cluster_summary_file = os.path.join(output_dir, "group_summary_" + str(distance) + ".tsv")
+
+    cluster_summary.to_csv(cluster_summary_file, sep='\t', index=False)
+    final_cluster.to_csv(final_cluster_file, sep='\t', index=False)
+
 
 
 ###########################COMPARE FUNCTIONS#####################################################################
@@ -484,19 +561,54 @@ def ddtb_compare(final_database):
     common_file = output_path + ".common.txt"
     matrix_to_common(presence_ddbb, common_file)
 
+    #Output files with group/cluster assigned to samples
+    logger.info(CYAN + "Assigning clusters" + END_FORMATTING)
+    matrix_to_cluster(pairwise_file, snp_dist_file, distance=args.distance)
+
     
 
 
 if __name__ == '__main__':
-    logger.info("#################### COMPARE SNPS #########################")
-
     args = get_arguments()
+    input_dir = os.path.abspath(args.input_dir)
+    output_dir = os.path.abspath(args.output)
+    group_name = output_dir.split('/')[-1]
+
+    #LOGGING
+    #Create log file with date and time
+    right_now = str(datetime.datetime.now())
+    right_now_full = "_".join(right_now.split(" "))
+    log_filename = group_name + "_" + right_now_full + ".log"
+    log_folder = os.path.join(output_dir, 'Logs')
+    check_create_dir(log_folder)
+    log_full_path = os.path.join(log_folder, log_filename)
+
+    logger = logging.getLogger()
+    logger.setLevel(logging.DEBUG)
+
+    formatter = logging.Formatter('%(asctime)s:%(message)s')
+
+    file_handler = logging.FileHandler(log_full_path)
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(formatter)
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setLevel(logging.INFO)
+    #stream_handler.setFormatter(formatter)
+
+    logger.addHandler(stream_handler)
+    logger.addHandler(file_handler)
+
+
+    logger.info("#################### COMPARE SNPS #########################")
     logger.info(args)
 
-    if args.recalibrate == False:
-        compare_snp_matrix = args.output + ".tsv"
-    else:
-        compare_snp_matrix = args.output + ".revised.tsv"
+    group_compare = os.path.join(output_dir, group_name)
 
-    ddtb_add(args.input_dir, args.output, sample_filter=args.sample_list, recalibrate=args.recalibrate)
+    if args.recalibrate == False:
+        compare_snp_matrix = group_compare + ".tsv"
+    else:
+        compare_snp_matrix = group_compare + ".revised.tsv"
+
+    ddtb_add(input_dir, group_compare, sample_filter=args.sample_list)
     ddtb_compare(compare_snp_matrix)
