@@ -14,8 +14,8 @@ import datetime
 
 # Local application imports
 from misc import check_file_exists, extract_sample, check_create_dir, execute_subprocess, \
-    extract_read_list, file_to_list, obtain_group_cov_stats, remove_low_covered_mixed, clean_unwanted_files, \
-    check_reanalysis, vcf_stats
+    extract_read_list, file_to_list, obtain_group_cov_stats, clean_unwanted_files, \
+    check_reanalysis, vcf_stats, remove_low_quality
 from preprocessing import fastqc_quality, fastp_trimming, format_html_image
 from pe_mapper import bwa_mapping, sam_to_index_bam
 from bam_variant import picard_dictionary, samtools_faidx, picard_markdup, ivar_trim, ivar_variants, ivar_consensus, \
@@ -23,7 +23,7 @@ from bam_variant import picard_dictionary, samtools_faidx, picard_markdup, ivar_
 from vcf_process import filter_tsv_variants, vcf_consensus_filter, highly_hetz_to_bed, poorly_covered_to_bed, non_genotyped_to_bed
 from annotation import replace_reference, snpeff_annotation, final_annotation, create_report, css_report
 from species_determination import mash_screen, extract_species_from_screen
-from compare_snp import ddtb_add, ddtb_compare
+from compare_snp import ddtb_add, ddtb_compare, recalibrate_ddbb_vcf
 
 """
 =============================================================
@@ -212,6 +212,8 @@ def main():
     out_stats_bamstats_dir = os.path.join(out_stats_dir, "Bamstats") #subfolder
     out_stats_coverage_dir = os.path.join(out_stats_dir, "Coverage") #subfolder
     out_compare_dir = os.path.join(output, "Compare")
+
+    out_consensus_dir = os.path.join(output, "Uncovered")
 
     #highly_hetz_bed = os.path.join(out_variant_dir, "highly_hetz.bed")
     #non_genotyped_bed = os.path.join(out_variant_dir, "non_genotyped.bed")
@@ -416,21 +418,29 @@ def main():
     logger.info(GREEN + "Creating summary report for coverage result " + END_FORMATTING)
     obtain_group_cov_stats(out_stats_coverage_dir)
 
+    ######################################REMOVE UNCOVERED
+    ######################################################
+    #logger.info(GREEN + "Removing low quality samples" + END_FORMATTING)
+    #remove_low_quality(out_stats_coverage_dir)
+
     ################SNP COMPARISON using tsv variant files
     ######################################################
-    # logger.info("\n\n" + BLUE + BOLD + "STARTING COMPARISON IN GROUP: " + group_name + END_FORMATTING + "\n")
+    logger.info("\n\n" + BLUE + BOLD + "STARTING COMPARISON IN GROUP: " + group_name + END_FORMATTING + "\n")
 
-    # check_create_dir(out_compare_dir)
-    # folder_compare = today + "_" + group_name
-    # path_compare = os.path.join(out_compare_dir, folder_compare)
-    # check_create_dir(path_compare)
-    # full_path_compare = os.path.join(path_compare, group_name)
-    # compare_snp_matrix = full_path_compare + ".tsv"
+    check_create_dir(out_compare_dir)
+    folder_compare = today + "_" + group_name
+    path_compare = os.path.join(out_compare_dir, folder_compare)
+    check_create_dir(path_compare)
+    full_path_compare = os.path.join(path_compare, group_name)
+    compare_snp_matrix = full_path_compare + ".tsv"
 
-    # ddtb_add(out_filtered_ivar_dir, full_path_compare)
-    # ddtb_compare(compare_snp_matrix)
+    ddtb_add(out_filtered_ivar_dir, full_path_compare)
+    compare_snp_matrix_recal = full_path_compare + ".revised.tsv"
+    recalibrated_snp_matrix = recalibrate_ddbb_vcf(compare_snp_matrix, out_map_dir)
+    recalibrated_snp_matrix.to_csv(compare_snp_matrix_recal, sep="\t", index=False)
+    ddtb_compare(compare_snp_matrix_recal, distance=args.distance)
 
-    # logger.info("\n\n" + MAGENTA + BOLD + "COMPARING FINISHED IN GROUP: " + group_name + END_FORMATTING + "\n")
+    logger.info("\n\n" + MAGENTA + BOLD + "COMPARING FINISHED IN GROUP: " + group_name + END_FORMATTING + "\n")
 
     """
                 

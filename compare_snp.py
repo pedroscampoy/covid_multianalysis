@@ -14,10 +14,6 @@ import datetime
 import scipy.cluster.hierarchy as shc
 import scipy.spatial.distance as ssd #pdist
 
-from misc import import_to_pandas, check_create_dir
-from vcf_process import import_VCF42_cohort_pandas
-
-
 logger = logging.getLogger()
 
 
@@ -40,7 +36,7 @@ def get_arguments():
     parser.add_argument('-i', '--input', dest="input_dir", metavar="input_directory", type=str, required=True, help='REQUIRED.Input directory containing all vcf files')
     parser.add_argument('-s', '--sample_list', default=False, required=False, help='File with sample names to analyse instead of all samples')
     parser.add_argument('-d', '--distance', default=0, required=False, help='Minimun distance to cluster groups after comparison')
-    parser.add_argument("-r", "--recalibrate", required= False, type=str, default=False, help='Pipeline folder where Bam and VCF subfolders are present')
+    parser.add_argument("-r", "--recalibrate", required= False, type=str, default=False, help='Bam folder')
     parser.add_argument("-R", "--reference", required= False, type=str, default=False, help='Reference fasta file used in original variant calling')
 
     parser.add_argument('-o', '--output', type=str, required=True, help='Name of all the output files, might include path')
@@ -59,6 +55,14 @@ def check_file_exists(file_name):
         logger.info(RED + BOLD + "File: %s not found or empty\n" % file_name + END_FORMATTING)
         sys.exit(1)
     return os.path.isfile(file_name)
+
+def check_create_dir(path):
+    #exists = os.path.isfile(path)
+    #exists = os.path.isdir(path)
+    if os.path.exists(path):
+        pass
+    else:
+        os.mkdir(path)
 
 def blank_database():
     new_pandas_ddtb = pd.DataFrame(columns=['Position','N', 'Samples'])
@@ -88,6 +92,16 @@ def import_VCF4_to_pandas(vcf_file, sep='\t'):
            
     return dataframe
 
+def import_to_pandas(file_table, header=False, sep='\t'):
+    if header == False:
+        #exclude first line, exclusive for vcf outputted by PipelineTB
+        dataframe = pd.read_csv(file_table, sep=sep, skiprows=[0], header=None)
+    else:
+        #Use first line as header
+        dataframe = pd.read_csv(file_table, sep=sep, header=0)
+    
+    return dataframe
+
 def import_tsv_pandas(vcf_file, sep='\t'):
     if check_file_exists(vcf_file):
         dataframe = pd.read_csv(vcf_file, sep=sep, header=0)
@@ -97,38 +111,6 @@ def import_tsv_pandas(vcf_file, sep='\t'):
         sys.exit(1)
            
     return dataframe
-
-def recheck_variant_mpileup(reference_file, whole_position, sample, bam_folder):
-    #Identify correct bam
-    for root, _, files in os.walk(bam_folder):
-        for name in files:
-            filename = os.path.join(root, name)
-            if name.startswith(sample) and name.endswith(".bqsr.bam"):
-                bam_file = filename
-    #format position for mpileuo execution (NC_000962.3:632455-632455)
-    row_position = int(whole_position.split('|')[2])
-    row_reference = whole_position.split('|')[0]
-    position = row_reference + ":" + str(row_position) + "-" + str(row_position)
-    
-    #Execute command and retrieve output
-    cmd = ["samtools", "mpileup", "-f", reference_file, "-aa", "-r", position, bam_file]
-    #print(cmd)
-    text_mpileup = subprocess.run(cmd,stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True, universal_newlines=True) 
-    
-    #Extract 5th column to find variants
-    variant = text_mpileup.stdout.split()[4]
-    var_list = list(variant)
-    logger.info(var_list)
-
-    
-    most_freq_var = max(set(var_list), key = var_list.count).upper()
-
-    logger.info(most_freq_var)
-        
-    if most_freq_var == "." or most_freq_var == "," or most_freq_var == "*":
-        return 0
-    else:
-        return 1
 
 def ddtb_add(input_folder, output_filename, sample_filter=False, vcf_suffix=".tsv" ):
     directory = os.path.abspath(input_folder)
@@ -154,8 +136,6 @@ def ddtb_add(input_folder, output_filename, sample_filter=False, vcf_suffix=".ts
             "Sample file don't exist"
             sys.exit(1)
     
-    logger.info(sample_filter_list)
-
     if len(sample_filter_list) < 1:
         logger.info("prease provide 2 or more samples")
         sys.exit(1)
@@ -362,8 +342,101 @@ def matrix_to_cluster(pairwise_file, matrix_file, distance=0):
     final_cluster.to_csv(final_cluster_file, sep='\t', index=False)
 
 
+def recalibrate_ddbb_vcf(snp_matrix_ddbb_file, bam_folder):
+    
+    df_matrix = pd.read_csv(snp_matrix_ddbb_file, sep="\t")
+    
+    sample_list_matrix = df_matrix.columns[3:]
+    n_samples = len(sample_list_matrix)
+    
+    #Iterate over non unanimous positions 
+    for index, data_row in df_matrix[df_matrix.N < n_samples].iloc[:,3:].iterrows():
+        #Extract its position
+        whole_position = df_matrix.loc[index,"Position"]
+        row_reference = whole_position.split('|')[0]
+        row_position = int(whole_position.split('|')[2])
+        row_alt_snp = whole_position.split('|')[3]
+
+        #Use enumerate to retrieve column index (column ondex + 3)
+        #find positions with frequency >80% in mpileup execution
+        #Returns ! for coverage 0
+        new_presence_row = [recheck_variant_mpileup(row_reference, row_position, row_alt_snp, df_matrix.columns[n + 3], x, bam_folder) for n,x in enumerate(data_row)]
+        
+        df_matrix.iloc[index, 3:] = new_presence_row
+        df_matrix.loc[index, 'N'] = sum([x == 1 for x in new_presence_row])
+        #logger.info(new_presence_row)
+
+    return df_matrix
+
+def recheck_variant_mpileup(reference_id, position, alt_snp, sample, previous_binary, bam_folder):
+
+    """
+    http://www.htslib.org/doc/samtools-mpileup.html
+    www.biostars.org/p/254287
+    In the pileup format (without -u or -g), each line represents a genomic position, consisting of chromosome name, 1-based coordinate,
+    reference base, the number of reads covering the site, read bases, base qualities and alignment mapping qualities. Information on match,
+    mismatch, indel, strand, mapping quality and start and end of a read are all encoded at the read base column. At this column, a dot stands
+    for a match to the reference base on the forward strand, a comma for a match on the reverse strand, a '>' or '<' for a reference skip,
+    ACGTN for a mismatch on the forward strand and acgtn for a mismatch on the reverse strand. A pattern \+[0-9]+[ACGTNacgtn]+ indicates there
+    is an insertion between this reference position and the next reference position. The length of the insertion is given by the integer in the
+    pattern, followed by the inserted sequence. Similarly, a pattern -[0-9]+[ACGTNacgtn]+ represents a deletion from the reference. The deleted
+    bases will be presented as * in the following lines. Also at the read base column, a symbol ^ marks the start of a read. The ASCII of the
+    character following ^ minus 33 gives the mapping quality. A symbol $ marks the end of a read segment
+    """
+    previous_binary = int(previous_binary)
+    position = int(position)
+
+    #Identify correct bam
+    for root, _, files in os.walk(bam_folder):
+        for name in files:
+            filename = os.path.join(root, name)
+            sample_file = name.split('.')[0]
+            if name.startswith(sample) and sample_file == sample and name.endswith(".bam"):
+                bam_file = filename
+    #format position for mpileup execution (NC_000962.3:632455-632455)
+    position_format = reference_id + ":" + str(position) + "-" + str(position)
+    
+    #Execute command and retrieve output
+    cmd = ["samtools", "mpileup", "-aa", "-r", position_format, bam_file]
+    text_mpileup = subprocess.run(cmd,stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True, universal_newlines=True) 
+    split_mpileup = text_mpileup.stdout.split()
+    #Extract 5th column to find variants
+    mpileup_reference = split_mpileup[0]
+    mpileup_position = int(split_mpileup[1])
+    mpileup_depth = split_mpileup[3]
+    mpileup_variants = split_mpileup[4]
+    variant_list = list(mpileup_variants)
+    variant_upper_list = [x.upper() for x in variant_list]
+
+    most_counted_variant = max(set(variant_upper_list), key = variant_upper_list.count)
+    count_all_variants = {x:variant_upper_list.count(x) for x in variant_upper_list}
+    freq_most_frequent = count_all_variants[most_counted_variant]/len(variant_upper_list)
+
+    if mpileup_depth == '0':
+        logger.info('WARNING: SAMPLE: {} has 0 depth in position {}'.format(sample, position))
+        return 00
+    if freq_most_frequent <= 0.8:
+        logger.info('WARNING: SAMPLE: {} has heterozygous position at {} with frequency {}'.format(sample, position, freq_most_frequent))
+
+
+    if reference_id != mpileup_reference:
+        logger.info('ERROR: References are different')
+        sys.exit(1)
+    else:
+        if (most_counted_variant == ".") or (most_counted_variant == ",") or (most_counted_variant == "*") or (freq_most_frequent < 0.8) or (most_counted_variant != alt_snp):
+            if previous_binary != 0:
+                logger.info('SAMPLE: {} has been corrected in position {}: {}=>0'.format(sample, position, previous_binary))
+            return 0
+        elif (most_counted_variant == alt_snp) and (freq_most_frequent >= 0.8) and (position == mpileup_position):
+            if previous_binary != 1:
+                logger.info('SAMPLE: {} has been corrected in position {}: {}=>1'.format(sample, position, previous_binary))
+            return 1
+        else:
+            return 'Ñ'
+
 
 ###########################COMPARE FUNCTIONS#####################################################################
+#################################################################################################################
 
 def compare_snp_columns(sample1, sample2, df):
     jaccard_similarity = accuracy_score(df[sample1], df[sample2]) #similarities between colums
@@ -464,6 +537,7 @@ def matrix_to_rdf(snp_matrix, output_name):
         #logger.info(first_line)
         fout.write(first_line)
         snp_list = snp_matrix.Position.tolist()
+        snp_list = [x.split('|')[2] for x in snp_list]
         snp_list = " ;".join([str(x) for x in snp_list]) + " ;\n"
         #logger.info(snp_list)
         fout.write(snp_list)
@@ -502,7 +576,7 @@ def matrix_to_common(snp_matrix, output_name):
     else:
         logger.info("No common SNPs were found")
 
-def ddtb_compare(final_database):
+def ddtb_compare(final_database, distance=0):
 
     database_file = os.path.abspath(final_database)
     check_file_exists(database_file)
@@ -563,7 +637,7 @@ def ddtb_compare(final_database):
 
     #Output files with group/cluster assigned to samples
     logger.info(CYAN + "Assigning clusters" + END_FORMATTING)
-    matrix_to_cluster(pairwise_file, snp_dist_file, distance=args.distance)
+    #matrix_to_cluster(pairwise_file, snp_dist_file, distance=distance)
 
     
 
@@ -573,7 +647,7 @@ if __name__ == '__main__':
     input_dir = os.path.abspath(args.input_dir)
     output_dir = os.path.abspath(args.output)
     group_name = output_dir.split('/')[-1]
-
+    check_create_dir(output_dir)
     #LOGGING
     #Create log file with date and time
     right_now = str(datetime.datetime.now())
@@ -604,11 +678,12 @@ if __name__ == '__main__':
     logger.info(args)
 
     group_compare = os.path.join(output_dir, group_name)
-
-    if args.recalibrate == False:
-        compare_snp_matrix = group_compare + ".tsv"
-    else:
-        compare_snp_matrix = group_compare + ".revised.tsv"
-
+    compare_snp_matrix = group_compare + ".tsv"
     ddtb_add(input_dir, group_compare, sample_filter=args.sample_list)
-    ddtb_compare(compare_snp_matrix)
+    if args.recalibrate == False:
+        ddtb_compare(compare_snp_matrix, distance=args.distance)
+    else:
+        compare_snp_matrix_recal = group_compare + ".revised.tsv"
+        recalibrated_snp_matrix = recalibrate_ddbb_vcf(compare_snp_matrix, args.recalibrate)
+        recalibrated_snp_matrix.to_csv(compare_snp_matrix_recal, sep="\t", index=False)
+        ddtb_compare(compare_snp_matrix_recal, distance=args.distance)

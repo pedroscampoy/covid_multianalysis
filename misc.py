@@ -3,7 +3,9 @@ import os
 import sys
 import re
 import subprocess
+import shutil
 import logging
+import datetime
 import pandas as pd
 import numpy as np
 
@@ -100,21 +102,6 @@ def check_create_dir(path):
         pass
     else:
         os.mkdir(path)
-
-
-def get_snpeff_path():
-    type_route = subprocess.run(["whereis", "snpEff"],stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True, universal_newlines=True) 
-    regex = re.compile(r'\/.*')
-    adapter_route = re.search(regex, type_route.stdout).group().strip().split("/")[0:-2]
-    partial_path = "/".join(adapter_route)
-
-    snpEff_config_path = subprocess.run(["find", partial_path, "-name", "snpEff.config"],stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True, universal_newlines=True)
-
-    final_path_config = snpEff_config_path.stdout.split("\n")[0]
-    final_path_config
-    
-    return final_path_config
-
 
 def execute_subprocess(cmd, isShell=False):
     """
@@ -282,41 +269,51 @@ def edit_sample_list(file_list, sample_list):
                 if line not in sample_list:
                     fout.write(line + "\n")
 
-def remove_low_covered_mixed(output_dir, sample_list, type_remove):
+def remove_low_quality(output_dir, type_remove='Uncovered'):
+    today = str(datetime.date.today())
     output_dir = os.path.abspath(output_dir)
     group = output_dir.split("/")[-1]
     uncovered_dir = os.path.join(output_dir, type_remove) #Uncovered or Mixed
-    check_create_dir(uncovered_dir)
+    variant_dir = output_dir + '/Variants/ivar_filtered'
+    uncovered_variant_dir = os.path.join(uncovered_dir , 'Variants')
+    uncovered_variant_filter = os.path.join(uncovered_variant_dir , 'ivar_filtered')
+    #check_create_dir(uncovered_dir)
+    #check_create_dir(uncovered_variant_dir)
+    #check_create_dir(uncovered_variant_filter)
 
     sample_list_file = os.path.join(output_dir, "sample_list.txt")
     
     for root, _, files in os.walk(output_dir):
         #Any previous file created except for Table for mixed samples
         # and Species for both uncovered and mixed
-        if root.endswith('GVCF_recal') or root.endswith('Coverage') \
-        or root.endswith('VCF') or root.endswith('VCF_recal') \
-        or root.endswith('Bam') or root.endswith('GVCF') \
-        or root.endswith('Table'):
+        if root.endswith('Stats/Coverage'):
             for name in files:
                 filename = os.path.join(root, name)
-                for sample_low in sample_list:
-                    sample_dot = sample_low + "." #Adapt name to the posibility that two samples starts with the same name
-                    if name.startswith(sample_dot):
-                        if os.path.isfile(sample_list_file):
-                            os.remove(filename)
- 
-        #Place low covered samples in a specific folder to analize them with different parameters
-        if root.endswith(group):
+                if name.endswith('coverage.summary.tab'):
+                    coverage_stat_file = filename
+                    coverage_df = pd.read_csv(coverage_stat_file, sep="\t")
+                    uncovered_samples = coverage_df['#SAMPLE'][coverage_df['COV>20X'] < 90].tolist()
+                    #create a df with only covered to replace the original
+                    covered_df = coverage_df[~coverage_df['#SAMPLE'].isin(uncovered_samples)]
+                    #create a df with uncovered
+                    uncovered_df = coverage_df[coverage_df['#SAMPLE'].isin(uncovered_samples)]
+                    uncovered_table_filename = today + 'uncovered.summary.tab'
+                    uncovered_table_file = os.path.join()
+
+    for root, _, files in os.walk(output_dir):
+        if root == output_dir:
             for name in files:
-                filename = os.path.join(root, name)
-                for sample_low in sample_list:
-                    sample_lowbar = sample_low + "_"
-                    if name.startswith(sample_lowbar) and name.endswith("fastq.gz"):
-                        dest_uncovered_path = os.path.join(uncovered_dir, name)
-                        if os.path.isfile(sample_list_file):
-                            os.rename(filename, dest_uncovered_path)
-    if os.path.isfile(sample_list_file):
-        edit_sample_list(sample_list_file, sample_list)
+                if name.endswith('fastq.gz'):
+                    filename = os.path.join(root, name)
+                    sample = re.search(r'^(.+?)[._-]', name).group(1)
+                    if sample in uncovered_samples:
+                        destination_file = os.path.join(uncovered_dir, name)
+                        #print(filename, destination_file)
+
+    for sample in uncovered_samples:
+        source_uncovered = os.path.join(variant_dir, sample + '.tsv')
+        dest_uncovered = os.path.join(uncovered_variant_filter, sample + '.tsv')
+        print(source_uncovered, dest_uncovered)
 
 
 def clean_unwanted_files(args):
