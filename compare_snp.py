@@ -7,7 +7,7 @@ import pandas as pd
 import argparse
 import sys
 import subprocess
-from sklearn.metrics import jaccard_similarity_score, pairwise_distances, accuracy_score
+from sklearn.metrics import pairwise_distances, accuracy_score
 import seaborn as sns
 import matplotlib.pyplot as plt
 import datetime
@@ -403,22 +403,29 @@ def recheck_variant_mpileup(reference_id, position, alt_snp, sample, previous_bi
     #Extract 5th column to find variants
     mpileup_reference = split_mpileup[0]
     mpileup_position = int(split_mpileup[1])
-    mpileup_depth = split_mpileup[3]
+    mpileup_depth = int(split_mpileup[3])
     mpileup_variants = split_mpileup[4]
     variant_list = list(mpileup_variants)
+    variants_to_account = ['A', 'T', 'C', 'G', '.', ',']
     variant_upper_list = [x.upper() for x in variant_list]
+    variant_upper_list = [x for x in variant_upper_list if x in variants_to_account]
 
-    most_counted_variant = max(set(variant_upper_list), key = variant_upper_list.count)
-    count_all_variants = {x:variant_upper_list.count(x) for x in variant_upper_list}
-    freq_most_frequent = count_all_variants[most_counted_variant]/len(variant_upper_list)
+    if len(variant_upper_list) == 0:
+        most_counted_variant = "*"
+        mpileup_depth = 0
 
-    if mpileup_depth == '0':
+    if mpileup_depth > 0:
+        most_counted_variant = max(set(variant_upper_list), key = variant_upper_list.count)
+        count_all_variants = {x:variant_upper_list.count(x) for x in variant_upper_list}
+        freq_most_frequent = count_all_variants[most_counted_variant]/len(variant_upper_list)
+
+        if freq_most_frequent <= 0.8:
+            logger.info('WARNING: SAMPLE: {} has heterozygous position at {} with frequency {}'.format(sample, position, freq_most_frequent))
+
+    elif mpileup_depth == 0:
         logger.info('WARNING: SAMPLE: {} has 0 depth in position {}'.format(sample, position))
-        return 00
-    if freq_most_frequent <= 0.8:
-        logger.info('WARNING: SAMPLE: {} has heterozygous position at {} with frequency {}'.format(sample, position, freq_most_frequent))
-
-
+        return 0
+    
     if reference_id != mpileup_reference:
         logger.info('ERROR: References are different')
         sys.exit(1)

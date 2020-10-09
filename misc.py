@@ -269,19 +269,22 @@ def edit_sample_list(file_list, sample_list):
                 if line not in sample_list:
                     fout.write(line + "\n")
 
-def remove_low_quality(output_dir, type_remove='Uncovered'):
-    today = str(datetime.date.today())
+def remove_low_quality(output_dir, min_percentage_20x=90, type_remove='Uncovered'):
+    right_now = str(datetime.datetime.now())
+    right_now_full = "_".join(right_now.split(" "))
     output_dir = os.path.abspath(output_dir)
-    group = output_dir.split("/")[-1]
     uncovered_dir = os.path.join(output_dir, type_remove) #Uncovered or Mixed
     variant_dir = output_dir + '/Variants/ivar_filtered'
+    consensus_dir = os.path.join(output_dir , 'Consensus')
     uncovered_variant_dir = os.path.join(uncovered_dir , 'Variants')
+    uncovered_consensus_dir = os.path.join(uncovered_dir , 'Consensus')
     uncovered_variant_filter = os.path.join(uncovered_variant_dir , 'ivar_filtered')
-    #check_create_dir(uncovered_dir)
-    #check_create_dir(uncovered_variant_dir)
-    #check_create_dir(uncovered_variant_filter)
+    check_create_dir(uncovered_dir)
+    check_create_dir(uncovered_variant_dir)
+    check_create_dir(uncovered_variant_filter)
+    check_create_dir(uncovered_consensus_dir)
 
-    sample_list_file = os.path.join(output_dir, "sample_list.txt")
+    uncovered_samples = []
     
     for root, _, files in os.walk(output_dir):
         #Any previous file created except for Table for mixed samples
@@ -292,13 +295,17 @@ def remove_low_quality(output_dir, type_remove='Uncovered'):
                 if name.endswith('coverage.summary.tab'):
                     coverage_stat_file = filename
                     coverage_df = pd.read_csv(coverage_stat_file, sep="\t")
-                    uncovered_samples = coverage_df['#SAMPLE'][coverage_df['COV>20X'] < 90].tolist()
+                    uncovered_samples = coverage_df['#SAMPLE'][coverage_df['COV>20X'] < min_percentage_20x].tolist()
                     #create a df with only covered to replace the original
                     covered_df = coverage_df[~coverage_df['#SAMPLE'].isin(uncovered_samples)]
+                    covered_df.to_csv(coverage_stat_file, sep="\t", index=False)
                     #create a df with uncovered
                     uncovered_df = coverage_df[coverage_df['#SAMPLE'].isin(uncovered_samples)]
-                    uncovered_table_filename = today + 'uncovered.summary.tab'
-                    uncovered_table_file = os.path.join()
+                    uncovered_table_filename = right_now_full + '_uncovered.summary.tab'
+                    uncovered_table_file = os.path.join(uncovered_dir, uncovered_table_filename)
+                    uncovered_df.to_csv(uncovered_table_file, sep="\t", index=False)
+
+    uncovered_samples = [str(x) for x in uncovered_samples]
 
     for root, _, files in os.walk(output_dir):
         if root == output_dir:
@@ -307,13 +314,31 @@ def remove_low_quality(output_dir, type_remove='Uncovered'):
                     filename = os.path.join(root, name)
                     sample = re.search(r'^(.+?)[._-]', name).group(1)
                     if sample in uncovered_samples:
+                        print('Sample fq ', sample)
                         destination_file = os.path.join(uncovered_dir, name)
-                        #print(filename, destination_file)
+                        shutil.move(filename, destination_file)
+
+    for root, _, files in os.walk(output_dir):
+        if 'Trimmed' in root or 'Quality' in root or 'Stats' in root:
+            for name in files:
+                filename = os.path.join(root, name)
+                sample = re.search(r'^(.+?)[._-]', name).group(1)
+                if sample in uncovered_samples:
+                    os.remove(filename)
 
     for sample in uncovered_samples:
-        source_uncovered = os.path.join(variant_dir, sample + '.tsv')
-        dest_uncovered = os.path.join(uncovered_variant_filter, sample + '.tsv')
-        print(source_uncovered, dest_uncovered)
+        sample = str(sample)
+        source_uncovered_var = os.path.join(variant_dir, sample + '.tsv')
+        dest_uncovered_var = os.path.join(uncovered_variant_filter, sample + '.tsv')
+        source_uncovered_cons = os.path.join(consensus_dir, sample + '.fa')
+        dest_uncovered_cons = os.path.join(uncovered_consensus_dir, sample + '.fa')
+        source_uncovered_cons_qual = os.path.join(consensus_dir, sample + '.qual.txt')
+        dest_uncovered_cons_qual = os.path.join(uncovered_consensus_dir, sample + '.qual.txt')
+        shutil.move(source_uncovered_var, dest_uncovered_var)
+        shutil.move(source_uncovered_cons, dest_uncovered_cons)
+        shutil.move(source_uncovered_cons_qual, dest_uncovered_cons_qual)
+    
+    return uncovered_samples
 
 
 def clean_unwanted_files(args):

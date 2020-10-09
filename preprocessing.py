@@ -73,7 +73,7 @@ def extract_sample_from_fastq(R_file):
     basename_R = os.path.basename(R_file)
   
     long_suffix = re.search('_S.*', basename_R)
-    dot_suffix = re.search('.R$', basename_R)
+    dot_suffix = re.search('.R[12].*', basename_R)
     
     if long_suffix:
         match = long_suffix.group()
@@ -101,10 +101,10 @@ def extract_files_html(fastqc_folder):
             fileName = os.path.join(root, name)
             if 'Quality/raw' in fileName and name.endswith('fastqc.html'):
                 sample = extract_sample_from_fastq(fileName)
-                if "_R1_" in name:
-                    read_type = '_R1_'
-                elif "_R2_" in name:
-                    read_type = '_R2_'
+                if "R1" in name:
+                    read_type = 'R1'
+                elif "R2" in name:
+                    read_type = 'R2'
                 raw_html = fileName
                 processed_html = extract_processed_html(fastqc_folder, sample, read_type)
                 html_pairs[count] = [raw_html, processed_html]

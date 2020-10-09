@@ -21,6 +21,7 @@ def filter_tsv_variants(tsv_file, output_filtered, min_frequency=0.8, min_total_
     output_file = os.path.join(output_filtered, input_file_name)
 
     df = pd.read_csv(input_file, sep='\t')
+    df = df.drop_duplicates(subset=['POS', 'REF', 'ALT'], keep="first")
     filtered_df = df[(df.PASS == is_pass) &
                     (df.TOTAL_DP >= min_total_depth) &
                     (df.ALT_DP >= min_alt_dp) &

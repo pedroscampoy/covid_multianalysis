@@ -21,7 +21,7 @@ from pe_mapper import bwa_mapping, sam_to_index_bam
 from bam_variant import picard_dictionary, samtools_faidx, picard_markdup, ivar_trim, ivar_variants, ivar_consensus, \
     replace_consensus_header, create_bamstat, create_coverage
 from vcf_process import filter_tsv_variants, vcf_consensus_filter, highly_hetz_to_bed, poorly_covered_to_bed, non_genotyped_to_bed
-from annotation import replace_reference, snpeff_annotation, final_annotation, create_report, css_report
+from annotation import annotate_snpeff, annotate_pangolin
 from species_determination import mash_screen, extract_species_from_screen
 from compare_snp import ddtb_add, ddtb_compare, recalibrate_ddbb_vcf
 
@@ -84,23 +84,23 @@ def main():
         input_group.add_argument('-p', '--primers', type=str, default='/home/laura/COVID/primers/nCoV-2019.bed', required=False, help='Bed file including primers to trim')
         input_group.add_argument('-B', '--annot_bed', type=str, required=False, action='append', help='bed file to annotate')
         input_group.add_argument('-V', '--annot_vcf', type=str, required=False, action='append', help='vcf file to annotate')
-        
+
+        quality_group = parser.add_argument_group('Quality parameters', 'parameters for diferent triming conditions')
+
+        quality_group.add_argument('-c', '--coverage20', default=90, required=False, help='Minimum percentage of coverage at 20x to clasify as uncovered (Default 90)')
+        quality_group.add_argument('-u', '--unmmaped', type=int, required=False, default=20, help='Minimun unmmaped percentage to add samples into analysis')
+
         output_group = parser.add_argument_group('Output', 'Required parameter to output results')
 
         output_group.add_argument('-o', '--output', type=str, required=True, help='REQUIRED. Output directory to extract all results')
         output_group.add_argument('-C', '--noclean', required=False, action='store_false', help='Clean unwanted files for standard execution')
 
+        params_group = parser.add_argument_group('Parameters', 'parameters for diferent stringent conditions')
+
+        params_group.add_argument('-T', '--threads', type=str, dest = "threads", required=False, default=16, help='Threads to use')
+        params_group.add_argument('-M', '--memory', type=str, dest = "memory", required=False, default=32, help='Max memory to use')
+        
         """
-        trimming_group = parser.add_argument_group('Trimming parameters', 'parameters for diferent triming conditions')
-
-        trimming_group.add_argument('-H', '--hdist', type=str, required=False, help='Set hdist parameter, default 2')
-        trimming_group.add_argument('-k', '--kmer', type=str, required=False, help='Set k parameter, default 21')
-
-        gatk_group = parser.add_argument_group('GATK parameters', 'parameters for diferent variant calling')
-
-        gatk_group.add_argument('-E', '--enrich_gvcf', required=False,  default=False, help='Point a directory with g.vcf files to enrich the analysis')
-        gatk_group.add_argument('-A', '--all_cohort', required=False,  action='store_true', help='Output vcf of all samples instead of just the one inputted before cohort')
-
         vcf_group = parser.add_argument_group('VCF filters', 'parameters for variant filtering')
 
         vcf_group.add_argument('-b', '--bed_remove', type=str, required=False, default=False, help='BED file with position ranges to filter from final vcf')
@@ -111,12 +111,7 @@ def main():
         annot_group.add_argument('--mash_database', type=str, required=False, default="/home/pjsola/REFERENCES/mash/RefSeq88n.msh", help='MASH ncbi annotation containing all species database')
         annot_group.add_argument('--snpeff_database', type=str, required=False, default=False, help='snpEFF annotation database')
         """
-        params_group = parser.add_argument_group('Parameters', 'parameters for diferent stringent conditions')
-
-        params_group.add_argument('-u', '--unmmaped', type=int, required=False, default=20, help='Minimun unmmaped percentage to add samples into analysis')
-        params_group.add_argument('-c', '--mincov', type=int, required=False, default=20, help='Minimun coverage to add samples into analysis')
-        params_group.add_argument('-T', '--threads', type=str, dest = "threads", required=False, default=16, help='Threads to use')
-        params_group.add_argument('-M', '--memory', type=str, dest = "memory", required=False, default=32, help='Max memory to use')
+        
     
 
         arguments = parser.parse_args()
@@ -213,7 +208,9 @@ def main():
     out_stats_coverage_dir = os.path.join(out_stats_dir, "Coverage") #subfolder
     out_compare_dir = os.path.join(output, "Compare")
 
-    out_consensus_dir = os.path.join(output, "Uncovered")
+    out_annot_dir = os.path.join(output, "Annotation")
+    out_annot_snpeff_dir = os.path.join(out_annot_dir, "snpeff")
+    out_annot_pangolin_dir = os.path.join(out_annot_dir, "pangolin")
 
     #highly_hetz_bed = os.path.join(out_variant_dir, "highly_hetz.bed")
     #non_genotyped_bed = os.path.join(out_variant_dir, "non_genotyped.bed")
@@ -231,12 +228,12 @@ def main():
             out_markdup_trimmed_name = sample + ".rg.markdup.trimmed.sorted.bam"
             output_markdup_trimmed_file = os.path.join(out_map_dir, out_markdup_trimmed_name)
 
+            logger.info("\n" + WHITE_BG + "STARTING SAMPLE: " + sample + " (" + sample_number + "/" + sample_total + ")" + END_FORMATTING)
+
             if not os.path.isfile(output_markdup_trimmed_file):
             
                 args.r1_file = r1_file
                 args.r2_file = r2_file
-
-                logger.info("\n" + WHITE_BG + "STARTING SAMPLE: " + sample + " (" + sample_number + "/" + sample_total + ")" + END_FORMATTING)
 
                 ##############START PIPELINE#####################
                 #################################################
@@ -410,8 +407,8 @@ def main():
     
     ###################fastqc OUTPUT FORMAT FOR COMPARISON
     ######################################################
-    #logger.info(GREEN + "Creating summary report for quality result " + END_FORMATTING)
-    #format_html_image(out_qc_dir)
+    logger.info(GREEN + "Creating summary report for quality result " + END_FORMATTING)
+    format_html_image(out_qc_dir)
 
     ###############################coverage OUTPUT SUMMARY
     ######################################################
@@ -419,9 +416,53 @@ def main():
     obtain_group_cov_stats(out_stats_coverage_dir)
 
     ######################################REMOVE UNCOVERED
-    ######################################################
-    #logger.info(GREEN + "Removing low quality samples" + END_FORMATTING)
-    #remove_low_quality(out_stats_coverage_dir)
+    ##############################################################################################################################
+    logger.info(GREEN + "Removing low quality samples" + END_FORMATTING)
+    uncovered_samples = remove_low_quality(output, min_percentage_20x=args.coverage20, type_remove='Uncovered')
+
+    #ANNOTATION WITH SNPEFF aND PANGOLIN ################
+    #####################################################
+    logger.info("\n\n" + BLUE + BOLD + "STARTING ANNOTATION IN GROUP: " + group_name + END_FORMATTING + "\n")
+    check_create_dir(out_annot_dir)
+    check_create_dir(out_annot_snpeff_dir)
+    check_create_dir(out_annot_pangolin_dir)
+    ####SNPEFF
+    for root, _, files in os.walk(out_filtered_ivar_dir):
+        if root == out_filtered_ivar_dir: 
+            for name in files:
+                if name.endswith('.tsv'):
+                    sample = name.split('.')[0]
+                    filename = os.path.join(root, name)
+                    out_annot_file = os.path.join(out_annot_snpeff_dir, sample + ".annot")
+                    if os.path.isfile(out_annot_file):
+                        logger.info(YELLOW + DIM + out_coverage_file + " EXIST\nOmmiting snpEff Annotation for  sample " + sample + END_FORMATTING)
+                    else:
+                        logger.info(GREEN + "Annotating sample with snpEff" + sample + END_FORMATTING)
+                        output_vcf = os.path.join(out_annot_snpeff_dir, sample + '.vcf')
+                        annotate_snpeff(filename, output_vcf, out_annot_file)
+    
+    ####PANGOLIN
+    for root, _, files in os.walk(out_consensus_dir):
+        if root == out_consensus_dir: 
+            for name in files:
+                if name.endswith('.fa'):
+                    sample = name.split('.')[0]
+                    filename = os.path.join(root, name)
+                    out_pangolin_file = os.path.join(out_annot_pangolin_dir, sample + ".csv")
+                    if os.path.isfile(out_pangolin_file):
+                        logger.info(YELLOW + DIM + out_coverage_file + " EXIST\nOmmiting Lineage for  sample " + sample + END_FORMATTING)
+                    else:
+                        logger.info(GREEN + "Obtaining Lineage in sample " + sample + END_FORMATTING)
+                        output_pangolin = os.path.join(out_annot_pangolin_dir, sample + '.csv')
+                        annotate_snpeff(filename, output_pangolin)
+
+
+
+
+
+
+
+
 
     ################SNP COMPARISON using tsv variant files
     ######################################################
@@ -438,7 +479,7 @@ def main():
     compare_snp_matrix_recal = full_path_compare + ".revised.tsv"
     recalibrated_snp_matrix = recalibrate_ddbb_vcf(compare_snp_matrix, out_map_dir)
     recalibrated_snp_matrix.to_csv(compare_snp_matrix_recal, sep="\t", index=False)
-    ddtb_compare(compare_snp_matrix_recal, distance=args.distance)
+    ddtb_compare(compare_snp_matrix_recal, distance=0)
 
     logger.info("\n\n" + MAGENTA + BOLD + "COMPARING FINISHED IN GROUP: " + group_name + END_FORMATTING + "\n")
 
