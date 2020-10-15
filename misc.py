@@ -8,6 +8,7 @@ import logging
 import datetime
 import pandas as pd
 import numpy as np
+from statistics import mean
 
 
 logger = logging.getLogger()
@@ -236,13 +237,8 @@ def calculate_cov_stats(file_cov):
     
     return mean_cov, unmmaped_prop, prop_0_10, prop_10_20, prop_high20, prop_high50, prop_high100, prop_high500, prop_high1000
 
-def obtain_group_cov_stats(directory):
+def obtain_group_cov_stats(directory, group_name):
     directory_path = os.path.abspath(directory)
-    
-    if directory_path.endswith("Coverage"):
-        group_name = directory_path.split("/")[-3]
-    else:
-        group_name = "samples"
 
     output_group_name = group_name + ".coverage.summary.tab"
     output_file = os.path.join(directory_path, output_group_name)
@@ -258,6 +254,99 @@ def obtain_group_cov_stats(directory):
                         coverage_stats = calculate_cov_stats(filename)
                         outfile.write(sample + "\t" + ("\t").join(coverage_stats) + "\n")
 
+def extract_snp_count(output_dir,sample):
+    sample = str(sample)
+    if '.' in sample:
+        sample = sample.split('.')[0]
+    variants_folder = os.path.join(output_dir, 'Variants')
+    raw_var_folder = os.path.join(variants_folder, 'ivar_raw')
+    filename = os.path.join(raw_var_folder, sample + ".tsv")
+
+    if os.path.exists(filename):
+        df = pd.read_csv(filename, sep="\t")
+        df = df.drop_duplicates(subset=['POS', 'REF', 'ALT'], keep="first")
+        high_quality_snps = df["POS"][(df.PASS == True) &
+                    (df.ALT_DP >= 20) &
+                    (df.ALT_FREQ >= 0.8) &
+                    ~(df.ALT.str.startswith('+') | df.ALT.str.startswith('-'))].tolist()
+        htz_snps = df["POS"][(df.PASS == True) &
+                    (df.ALT_DP >= 20) &
+                    (df.ALT_FREQ < 0.8) &
+                    (df.ALT_FREQ >= 0.2) &
+                    ~(df.ALT.str.startswith('+') | df.ALT.str.startswith('-'))].tolist()
+        indels = df["POS"][(df.PASS == True) &
+                    (df.ALT_DP >= 20) &
+                    (df.ALT_FREQ >= 0.8) &
+                    (df.ALT.str.startswith('+') | df.ALT.str.startswith('-'))].tolist()
+        return (len(high_quality_snps), len(htz_snps), len(indels))
+    else:
+        logger.debug("FILE " + filename + " NOT FOUND" )
+        return None
+
+def extract_mapped_reads(output_dir,sample):
+    sample = str(sample)
+    if '.' in sample:
+        sample = sample.split('.')[0]
+    stats_folder = os.path.join(output_dir, 'Stats')
+    bamstats_folder = os.path.join(stats_folder, 'Bamstats')
+    filename = os.path.join(bamstats_folder, sample + ".bamstats")
+
+    if os.path.exists(filename):
+        with open (filename, 'r') as f:
+            for line in f:
+                if 'mapped' in line and '%' in line:
+                    reads_mapped = line.split(" ")[0]
+                    mappep_percentage = line.split("(")[-1].split("%")[0]
+                elif 'properly paired' in line:
+                    properly_paired = line.split(" ")[0]
+                    paired_percentage = line.split("(")[-1].split("%")[0]
+        return int(reads_mapped), float(mappep_percentage), int(properly_paired), float(paired_percentage)
+    else:
+        print("FILE " + filename + " NOT FOUND" )
+        return None
+
+def extract_n_consensus(output_dir,sample):
+    sample = str(sample)
+    if '.' in sample:
+        sample = sample.split('.')[0]
+    consensus_folder = os.path.join(output_dir, 'Consensus')
+    filename = os.path.join(consensus_folder, sample + ".fa")
+
+    if os.path.exists(filename):
+        with open (filename, 'r') as f:
+            content = f.read()
+            content_list = content.split('\n')
+            sample_fq = content_list[0].strip(">")
+            if sample_fq == sample:
+                #In case fasta is in several lines(not by default)
+                sequence = ("").join(content_list[1:]).strip()
+                all_N = re.findall(r'N+', sequence)
+                leading_N = re.findall(r'^N+', sequence)
+                tailing_N = re.findall(r'N+$', sequence)
+                length_N = [len(x) for x in all_N]
+                individual_N = [x for x in length_N if x == 1]
+                mean_length_N = mean(length_N)
+                sum_length_N = sum(length_N)
+                total_perc_N = sum_length_N / len(sequence) * 100
+                return(len(all_N), len(individual_N), len(leading_N), len(tailing_N), sum_length_N, total_perc_N, mean_length_N)
+    else:
+        print("FILE " + filename + " NOT FOUND" )
+        return None
+
+def obtain_overal_stats(output_dir, group):
+    stat_folder = os.path.join(output_dir, 'Stats')
+    overal_stat_file = os.path.join(stat_folder, group + ".overal.stats.tab")
+    for root, _, files in os.walk(stat_folder):
+        for name in files:
+            if name.endswith('coverage.summary.tab'):
+                filename = os.path.join(root, name)
+                df = pd.read_csv(filename, sep="\t")
+                df[['HQ_SNP', 'HTZ_SNP', 'INDELS']] = df.apply(lambda x: extract_snp_count(output_dir, x['#SAMPLE']), axis=1, result_type="expand")
+                df[['mapped_reads', 'perc_mapped', 'paired_mapped', 'perc_paired']] = df.apply(lambda x: extract_mapped_reads(output_dir, x['#SAMPLE']), axis=1, result_type="expand")
+                df[['N_groups', 'N_individual', 'N_leading', 'N_tailing', 'N_sum_len', 'N_total_perc','N_mean_len']] = df.apply(lambda x: extract_n_consensus(output_dir, x['#SAMPLE']), axis=1, result_type="expand")
+    df.to_csv(overal_stat_file, sep="\t", index=False)
+
+
 def edit_sample_list(file_list, sample_list):
     with open(file_list, 'r') as f:
         content = f.read()
@@ -269,7 +358,8 @@ def edit_sample_list(file_list, sample_list):
                 if line not in sample_list:
                     fout.write(line + "\n")
 
-def remove_low_quality(output_dir, min_percentage_20x=90, type_remove='Uncovered'):
+
+def remove_low_quality(output_dir, min_percentage_20x=90, min_hq_snp=1, type_remove='Uncovered'):
     right_now = str(datetime.datetime.now())
     right_now_full = "_".join(right_now.split(" "))
     output_dir = os.path.abspath(output_dir)
@@ -289,21 +379,23 @@ def remove_low_quality(output_dir, min_percentage_20x=90, type_remove='Uncovered
     for root, _, files in os.walk(output_dir):
         #Any previous file created except for Table for mixed samples
         # and Species for both uncovered and mixed
-        if root.endswith('Stats/Coverage'):
+        if root.endswith('Stats'):
             for name in files:
                 filename = os.path.join(root, name)
-                if name.endswith('coverage.summary.tab'):
+                if name.endswith('overal.stats.tab'):
                     coverage_stat_file = filename
-                    coverage_df = pd.read_csv(coverage_stat_file, sep="\t")
-                    uncovered_samples = coverage_df['#SAMPLE'][coverage_df['COV>20X'] < min_percentage_20x].tolist()
+                    stats_df = pd.read_csv(coverage_stat_file, sep="\t")
+                    uncovered_samples = stats_df['#SAMPLE'][(stats_df['COV>20X'] < min_percentage_20x) |
+                                                            (stats_df['HQ_SNP'] < min_hq_snp)].tolist()
                     #create a df with only covered to replace the original
-                    covered_df = coverage_df[~coverage_df['#SAMPLE'].isin(uncovered_samples)]
+                    covered_df = stats_df[~stats_df['#SAMPLE'].isin(uncovered_samples)]
                     covered_df.to_csv(coverage_stat_file, sep="\t", index=False)
                     #create a df with uncovered
-                    uncovered_df = coverage_df[coverage_df['#SAMPLE'].isin(uncovered_samples)]
+                    uncovered_df = stats_df[stats_df['#SAMPLE'].isin(uncovered_samples)]
                     uncovered_table_filename = right_now_full + '_uncovered.summary.tab'
                     uncovered_table_file = os.path.join(uncovered_dir, uncovered_table_filename)
-                    uncovered_df.to_csv(uncovered_table_file, sep="\t", index=False)
+                    if len(uncovered_samples) > 0:
+                        uncovered_df.to_csv(uncovered_table_file, sep="\t", index=False)
 
     uncovered_samples = [str(x) for x in uncovered_samples]
 
@@ -314,7 +406,6 @@ def remove_low_quality(output_dir, min_percentage_20x=90, type_remove='Uncovered
                     filename = os.path.join(root, name)
                     sample = re.search(r'^(.+?)[._-]', name).group(1)
                     if sample in uncovered_samples:
-                        print('Sample fq ', sample)
                         destination_file = os.path.join(uncovered_dir, name)
                         shutil.move(filename, destination_file)
 
@@ -338,7 +429,27 @@ def remove_low_quality(output_dir, min_percentage_20x=90, type_remove='Uncovered
         shutil.move(source_uncovered_cons, dest_uncovered_cons)
         shutil.move(source_uncovered_cons_qual, dest_uncovered_cons_qual)
     
-    return uncovered_samples
+    #return uncovered_samples
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def clean_unwanted_files(args):
@@ -451,7 +562,6 @@ def check_reanalysis(output_dir):
                                 os.remove(filename)
                             if "poorly_covered.bed" in filename and samples_analyzed < 100:
                                 os.remove(filename)
-            #print(file_exist, samples_analyzed, samples_fastq)
 
 def extrach_variants_summary(vcf_table, distance=15, quality=10 ):
     sample = vcf_table.split("/")[-1].split(".")[0]

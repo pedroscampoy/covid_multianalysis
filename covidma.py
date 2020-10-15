@@ -15,7 +15,7 @@ import datetime
 # Local application imports
 from misc import check_file_exists, extract_sample, check_create_dir, execute_subprocess, \
     extract_read_list, file_to_list, obtain_group_cov_stats, clean_unwanted_files, \
-    check_reanalysis, vcf_stats, remove_low_quality
+    check_reanalysis, vcf_stats, remove_low_quality, obtain_overal_stats
 from preprocessing import fastqc_quality, fastp_trimming, format_html_image
 from pe_mapper import bwa_mapping, sam_to_index_bam
 from bam_variant import picard_dictionary, samtools_faidx, picard_markdup, ivar_trim, ivar_variants, ivar_consensus, \
@@ -87,8 +87,8 @@ def main():
 
         quality_group = parser.add_argument_group('Quality parameters', 'parameters for diferent triming conditions')
 
-        quality_group.add_argument('-c', '--coverage20', default=90, required=False, help='Minimum percentage of coverage at 20x to clasify as uncovered (Default 90)')
-        quality_group.add_argument('-u', '--unmmaped', type=int, required=False, default=20, help='Minimun unmmaped percentage to add samples into analysis')
+        quality_group.add_argument('-c', '--coverage20', type=int, default=90, required=False, help='Minimum percentage of coverage at 20x to clasify as uncovered (Default 90)')
+        quality_group.add_argument('-n', '--min_snp', type=int, required=False, default=1, help='SNP number to pass quality threshold')
 
         output_group = parser.add_argument_group('Output', 'Required parameter to output results')
 
@@ -413,12 +413,17 @@ def main():
     ###############################coverage OUTPUT SUMMARY
     ######################################################
     logger.info(GREEN + "Creating summary report for coverage result " + END_FORMATTING)
-    obtain_group_cov_stats(out_stats_coverage_dir)
+    obtain_group_cov_stats(out_stats_coverage_dir, group_name)
+
+    #####################READS and VARIANTS OUTPUT SUMMARY
+    ######################################################
+    logger.info(GREEN + "Creating overal summary report " + END_FORMATTING)
+    obtain_overal_stats(output, group_name)
 
     ######################################REMOVE UNCOVERED
     ##############################################################################################################################
     logger.info(GREEN + "Removing low quality samples" + END_FORMATTING)
-    uncovered_samples = remove_low_quality(output, min_percentage_20x=args.coverage20, type_remove='Uncovered')
+    remove_low_quality(output, min_percentage_20x=args.coverage20, min_hq_snp=args.min_snp, type_remove='Uncovered')
 
     #ANNOTATION WITH SNPEFF aND PANGOLIN ################
     #####################################################
@@ -435,9 +440,9 @@ def main():
                     filename = os.path.join(root, name)
                     out_annot_file = os.path.join(out_annot_snpeff_dir, sample + ".annot")
                     if os.path.isfile(out_annot_file):
-                        logger.info(YELLOW + DIM + out_coverage_file + " EXIST\nOmmiting snpEff Annotation for  sample " + sample + END_FORMATTING)
+                        logger.info(YELLOW + DIM + out_annot_file + " EXIST\nOmmiting snpEff Annotation for sample " + sample + END_FORMATTING)
                     else:
-                        logger.info(GREEN + "Annotating sample with snpEff" + sample + END_FORMATTING)
+                        logger.info(GREEN + "Annotating sample with snpEff: " + sample + END_FORMATTING)
                         output_vcf = os.path.join(out_annot_snpeff_dir, sample + '.vcf')
                         annotate_snpeff(filename, output_vcf, out_annot_file)
     
@@ -448,13 +453,13 @@ def main():
                 if name.endswith('.fa'):
                     sample = name.split('.')[0]
                     filename = os.path.join(root, name)
-                    out_pangolin_file = os.path.join(out_annot_pangolin_dir, sample + ".csv")
+                    out_pangolin_filename = sample + ".lineage.csv"
+                    out_pangolin_file = os.path.join(out_annot_pangolin_dir, out_pangolin_filename)
                     if os.path.isfile(out_pangolin_file):
-                        logger.info(YELLOW + DIM + out_coverage_file + " EXIST\nOmmiting Lineage for  sample " + sample + END_FORMATTING)
+                        logger.info(YELLOW + DIM + out_pangolin_file + " EXIST\nOmmiting Lineage for  sample " + sample + END_FORMATTING)
                     else:
                         logger.info(GREEN + "Obtaining Lineage in sample " + sample + END_FORMATTING)
-                        output_pangolin = os.path.join(out_annot_pangolin_dir, sample + '.csv')
-                        annotate_snpeff(filename, output_pangolin)
+                        annotate_pangolin(filename, out_annot_pangolin_dir, out_pangolin_filename, threads=args.threads, max_ambig=0.6)
 
 
 

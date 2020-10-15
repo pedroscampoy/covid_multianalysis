@@ -9,7 +9,7 @@ import numpy as np
 import re
 import subprocess
 #from tabulate import tabulate
-from misc import check_create_dir
+from misc import check_create_dir, execute_subprocess
 from vcf_process import bed_to_df, add_bed_info, annotate_bed_s, calculate_ALT_AD, calculate_true_ALT
 
 logger = logging.getLogger()
@@ -21,21 +21,34 @@ logger = logging.getLogger()
 
 def tsv_to_vcf(tsv_file):
     df = pd.read_csv(tsv_file, sep="\t")
+    is_empty = df.shape[0] == 0
     #df.insert(2, 'ID', '.')
     df.fillna(".", inplace=True)
     df["PASS"].replace({True: 'PASS'}, inplace=True)
     df.rename(columns={"REGION": "#CHROM", "GFF_FEATURE": "ID", "ALT_QUAL": "QUAL", "PASS": "FILTER"}, inplace=True)
-    df['INFO'] = df.apply(lambda x: "CODON={}-{};AA={}-{};DP={}".format(x.REF_CODON, x.ALT_CODON, x.REF_AA, x.ALT_AA, x.TOTAL_DP), axis=1)
-    df = df[['#CHROM', 'POS', 'ID', 'REF', 'ALT','QUAL', 'FILTER', 'INFO']]
+
+    fial_columns = ['#CHROM', 'POS', 'ID', 'REF', 'ALT','QUAL', 'FILTER', 'INFO']
+
+    if not is_empty:
+        df['INFO'] = df.apply(lambda x: "CODON={}-{};AA={}-{};DP={}".format(x.REF_CODON, x.ALT_CODON, x.REF_AA, x.ALT_AA, x.TOTAL_DP), axis=1)
+    else:
+        df = df.reindex(columns = fial_columns)
+    df = df[fial_columns]
     
     return df
 
 def snpeff_execution(vcf_file, annot_file, database=False):
-    cmd = ["snpEff", database, vcf_file]
-    with open(annot_file, "w+") as outfile:
-        #calculate coverage and save it in th eoutput file
-        subprocess.run(cmd,
-        stdout=outfile, stderr=subprocess.PIPE, check=True, universal_newlines=True)
+    df_vcf = pd.read_csv(vcf_file, sep="\t")
+    if df_vcf.shape[0] != 0:
+        cmd = ["snpEff", database, vcf_file]
+        with open(annot_file, "w+") as outfile:
+            #calculate coverage and save it in th eoutput file
+            subprocess.run(cmd,
+            stdout=outfile, stderr=subprocess.PIPE, check=True, universal_newlines=True)
+    else:
+        with open(annot_file, "w+") as outfile:
+            outfile.write('No annotation found')
+            
 
 def import_annot_to_pandas(vcf_file, sep='\t'):
     """
@@ -52,6 +65,8 @@ def import_annot_to_pandas(vcf_file, sep='\t'):
     header_lines = 0
     with open(vcf_file) as f:
         first_line = f.readline().strip()
+        if first_line == 'No annotation found':
+            return pd.read_csv(vcf_file, sep=sep)
         next_line = f.readline().strip()
         while next_line.startswith("##"):
             header_lines = header_lines + 1
@@ -88,7 +103,7 @@ def import_annot_to_pandas(vcf_file, sep='\t'):
     
     for head in anlelle_headers:
         df[head] = df[head].str.split("=").str[-1]
-        
+
     del df['TMP_ANN_16']
 
     #Send INFO column to last position
@@ -107,35 +122,9 @@ def annotate_snpeff(input_tsv_file, output_vcf_file, output_annot_file, database
     os.remove(output_vcf_file)
 
 
-def annotate_pangolin():
-    pass
-
-# def snpeff_annotation(args, vcf_file, database=False):
-#     #http://snpeff.sourceforge.net/SnpEff_manual.html
-#     # java -jar snpEff.jar -ud 0 -c path/to/snpEff/snpEff.config -stats SAMPLE.starts.annot.html
-#     #   Mycobacterium_tuberculosis_h37rv VCF_FILE > FILE.annot
-   
-#     vcf_file = os.path.abspath(vcf_file)
-
-#     sample = os.path.basename(vcf_file).split(".")[0]
-#     file_name = (".").join(os.path.basename(vcf_file).split(".")[:-1])
-
-#     snpeff_config = get_snpeff_path()
-
-#     annotate_output_dir = obtain_output_dir(args, "Annotation")
-#     #output_dir = os.path.abspath(args.output)
-#     stat_name = sample + ".annot.html"
-#     annot_name = file_name + ".annot"
-
-#     stat_file = os.path.join(annotate_output_dir, stat_name)
-#     output_file = os.path.join(annotate_output_dir, annot_name)
-
-#     cmd = ["snpEff", "-ud", "0", "-c", snpeff_config, "-stats", stat_file, database, vcf_file]
-#     #execute_subprocess(cmd)
-#     with open(output_file, "w+") as outfile:
-#         #calculate coverage and save it in th eoutput file
-#         subprocess.run(cmd,
-#         stdout=outfile, stderr=subprocess.PIPE, check=True, universal_newlines=True)
+def annotate_pangolin(input_file, output_folder, output_filename, threads=8, max_ambig=0.6):
+    cmd = ["pangolin", input_file, "--outdir", output_folder, "--outfile", output_filename, "--threads", str(threads), "--max-ambig", str(max_ambig)]
+    execute_subprocess(cmd)
 
 
 # def final_annotation(vcf_file_annot, *bed_files):
