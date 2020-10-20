@@ -33,11 +33,12 @@ def get_arguments():
 
     parser = argparse.ArgumentParser(prog = 'snptb.py', description= 'Pipeline to call variants (SNVs) with any non model organism. Specialised in Mycobacterium Tuberculosis')
     
-    parser.add_argument('-i', '--input', dest="input_dir", metavar="input_directory", type=str, required=True, help='REQUIRED.Input directory containing all vcf files')
+    parser.add_argument('-i', '--input', dest="input_dir", metavar="input_directory", type=str, required=False, help='REQUIRED.Input directory containing all vcf files')
     parser.add_argument('-s', '--sample_list', default=False, required=False, help='File with sample names to analyse instead of all samples')
     parser.add_argument('-d', '--distance', default=0, required=False, help='Minimun distance to cluster groups after comparison')
-    parser.add_argument("-r", "--recalibrate", required= False, type=str, default=False, help='Bam folder')
-    parser.add_argument("-R", "--reference", required= False, type=str, default=False, help='Reference fasta file used in original variant calling')
+    parser.add_argument('-c', '--only-compare', dest="only_compare", required=False, default=False, help='Add already calculated snp binary matrix')
+    parser.add_argument('-r', '--recalibrate', required= False, type=str, default=False, help='Bam folder')
+    parser.add_argument('-R', '--reference', required= False, type=str, default=False, help='Reference fasta file used in original variant calling')
 
     parser.add_argument('-o', '--output', type=str, required=True, help='Name of all the output files, might include path')
 
@@ -300,6 +301,8 @@ def calculate_N(row):
 def calculate_mean_distance(row, df):
     if row.N > 1:
         list_sample = row.samples
+        list_sample = [str(x) for x in list_sample]
+        list_sample = [x.split(".")[0] for x in list_sample]
         dataframe = df.loc[list_sample,list_sample]
         stacked_df = dataframe.stack()
         mean_distance = stacked_df.mean(skipna = True)
@@ -307,13 +310,15 @@ def calculate_mean_distance(row, df):
         max_distance = stacked_df.max(skipna = True)
         return round(mean_distance, 2), min_distance, max_distance
     else:
-        return 'NaN'
+        return 'NaN', 'NaN', 'NaN'
 
 def matrix_to_cluster(pairwise_file, matrix_file, distance=0):
     output_dir = ('/').join(pairwise_file.split('/')[0:-1])
 
     logger.info('Reading Matrix')
     dfdist = pd.read_csv(matrix_file, index_col=0, sep='\t', )
+    dfdist.columns = dfdist.columns.astype(str)
+    dfdist.index = dfdist.index.astype(str)
     logger.info('Reading Pairwise')
     pairwise = pd.read_csv(pairwise_file, sep="\t", names=['sample_1', 'sample_2', 'dist'])
     logger.info('Creating Clusters')
@@ -364,7 +369,6 @@ def recalibrate_ddbb_vcf(snp_matrix_ddbb_file, bam_folder):
         
         df_matrix.iloc[index, 3:] = new_presence_row
         df_matrix.loc[index, 'N'] = sum([x == 1 for x in new_presence_row])
-        #logger.info(new_presence_row)
 
     return df_matrix
 
@@ -377,7 +381,7 @@ def recheck_variant_mpileup(reference_id, position, alt_snp, sample, previous_bi
     reference base, the number of reads covering the site, read bases, base qualities and alignment mapping qualities. Information on match,
     mismatch, indel, strand, mapping quality and start and end of a read are all encoded at the read base column. At this column, a dot stands
     for a match to the reference base on the forward strand, a comma for a match on the reverse strand, a '>' or '<' for a reference skip,
-    ACGTN for a mismatch on the forward strand and acgtn for a mismatch on the reverse strand. A pattern \+[0-9]+[ACGTNacgtn]+ indicates there
+    ACGTN for a mismatch on the forward strand and acgtn for a mismatch on the reverse strand. A pattern +[0-9]+[ACGTNacgtn]+ indicates there
     is an insertion between this reference position and the next reference position. The length of the insertion is given by the integer in the
     pattern, followed by the inserted sequence. Similarly, a pattern -[0-9]+[ACGTNacgtn]+ represents a deletion from the reference. The deleted
     bases will be presented as * in the following lines. Also at the read base column, a symbol ^ marks the start of a read. The ASCII of the
@@ -441,6 +445,106 @@ def recheck_variant_mpileup(reference_id, position, alt_snp, sample, previous_bi
         else:
             return 'Ñ'
 
+def recheck_variant_mpileup_intermediate(reference_id, position, alt_snp, sample, previous_binary, bam_folder):
+
+    """
+    http://www.htslib.org/doc/samtools-mpileup.html
+    www.biostars.org/p/254287
+    In the pileup format (without -u or -g), each line represents a genomic position, consisting of chromosome name, 1-based coordinate,
+    reference base, the number of reads covering the site, read bases, base qualities and alignment mapping qualities. Information on match,
+    mismatch, indel, strand, mapping quality and start and end of a read are all encoded at the read base column. At this column, a dot stands
+    for a match to the reference base on the forward strand, a comma for a match on the reverse strand, a '>' or '<' for a reference skip,
+    ACGTN for a mismatch on the forward strand and acgtn for a mismatch on the reverse strand. A pattern +[0-9]+[ACGTNacgtn]+ indicates there
+    is an insertion between this reference position and the next reference position. The length of the insertion is given by the integer in the
+    pattern, followed by the inserted sequence. Similarly, a pattern -[0-9]+[ACGTNacgtn]+ represents a deletion from the reference. The deleted
+    bases will be presented as * in the following lines. Also at the read base column, a symbol ^ marks the start of a read. The ASCII of the
+    character following ^ minus 33 gives the mapping quality. A symbol $ marks the end of a read segment
+    """
+    previous_binary = int(previous_binary)
+    position = int(position)
+
+    #Identify correct bam
+    for root, _, files in os.walk(bam_folder):
+        for name in files:
+            filename = os.path.join(root, name)
+            sample_file = name.split('.')[0]
+            if name.startswith(sample) and sample_file == sample and name.endswith(".bam"):
+                bam_file = filename
+    #format position for mpileup execution (NC_000962.3:632455-632455)
+    position_format = reference_id + ":" + str(position) + "-" + str(position)
+    
+    #Execute command and retrieve output
+    cmd = ["samtools", "mpileup", "-aa", "-r", position_format, bam_file]
+    text_mpileup = subprocess.run(cmd,stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True, universal_newlines=True) 
+    split_mpileup = text_mpileup.stdout.split()
+    #Extract 5th column to find variants
+    mpileup_reference = split_mpileup[0]
+    mpileup_position = int(split_mpileup[1])
+    mpileup_depth = int(split_mpileup[3])
+    mpileup_variants = split_mpileup[4]
+    variant_list = list(mpileup_variants)
+    variants_to_account = ['A', 'T', 'C', 'G', '.', ',']
+    variant_upper_list = [x.upper() for x in variant_list]
+    variant_upper_list = [x for x in variant_upper_list if x in variants_to_account]
+
+    if len(variant_upper_list) == 0:
+        most_counted_variant = "*"
+        mpileup_depth = 0
+
+    if reference_id != mpileup_reference:
+        logger.info('ERROR: References are different')
+        sys.exit(1)
+    else:
+        if  mpileup_depth == 0:
+            logger.info('WARNING: SAMPLE: {} has 0 depth in position {}'.format(sample, position))
+            return '!'
+
+        elif mpileup_depth > 0:
+            most_counted_variant = max(set(variant_upper_list), key = variant_upper_list.count)
+            count_all_variants = {x:variant_upper_list.count(x) for x in variant_upper_list}
+            freq_most_frequent = count_all_variants[most_counted_variant]/len(variant_upper_list)
+            freq_most_frequent = round(freq_most_frequent,2)
+
+            if (most_counted_variant == alt_snp) and (freq_most_frequent < 0.8) and (freq_most_frequent >= 0.1):
+                logger.info('WARNING: SAMPLE: {} has heterozygous position at {} with frequency {}'.format(sample, position, freq_most_frequent))
+                return freq_most_frequent
+
+            elif (most_counted_variant == ".") or (most_counted_variant == ",") or (most_counted_variant == "*") or (freq_most_frequent < 0.8) or (most_counted_variant != alt_snp):
+                if previous_binary != 0:
+                    logger.info('SAMPLE: {} has been corrected in position {}: {}=>0'.format(sample, position, previous_binary))
+                return 0
+            elif (most_counted_variant == alt_snp) and (freq_most_frequent >= 0.8) and (position == mpileup_position):
+                if previous_binary != 1:
+                    logger.info('SAMPLE: {} has been corrected in position {}: {}=>1'.format(sample, position, previous_binary))
+                return 1
+            else:
+                return 'Ñ'
+
+def recalibrate_ddbb_vcf_intermediate(snp_matrix_ddbb_file, bam_folder):
+    
+    df_matrix = pd.read_csv(snp_matrix_ddbb_file, sep="\t")
+    
+    sample_list_matrix = df_matrix.columns[3:]
+    n_samples = len(sample_list_matrix)
+    
+    #Iterate over non unanimous positions 
+    for index, data_row in df_matrix[df_matrix.N < n_samples].iloc[:,3:].iterrows():
+        #Extract its position
+        whole_position = df_matrix.loc[index,"Position"]
+        row_reference = whole_position.split('|')[0]
+        row_position = int(whole_position.split('|')[2])
+        row_alt_snp = whole_position.split('|')[3]
+
+        #Use enumerate to retrieve column index (column ondex + 3)
+        #find positions with frequency >80% in mpileup execution
+        #Returns ! for coverage 0
+        new_presence_row = [recheck_variant_mpileup_intermediate(row_reference, row_position, row_alt_snp, df_matrix.columns[n + 3], x, bam_folder) for n,x in enumerate(data_row)]
+        
+        df_matrix.iloc[index, 3:] = new_presence_row
+        df_matrix.loc[index, 'N'] = sum([x == 1 for x in new_presence_row])
+
+    return df_matrix
+
 
 ###########################COMPARE FUNCTIONS#####################################################################
 #################################################################################################################
@@ -462,12 +566,14 @@ def snp_distance_pairwise(dataframe, output_file):
                     line_distance = "%s\t%s\t%s\n" % (sample1, sample2, snp_distance)
                     f.write(line_distance)
 
-def snp_distance_matrix(dataframe, output_file):
+def snp_distance_matrix(dataframe, output_matrix, output_pairwise):
     dataframe_only_samples = dataframe.set_index(dataframe['Position']).drop(['Position','N','Samples'], axis=1) #extract three first colums and use 'Position' as index
     hamming_distance = pairwise_distances(dataframe_only_samples.T, metric = "hamming") #dataframe.T means transposed
     snp_distance_df = pd.DataFrame(hamming_distance * len(dataframe_only_samples.index), index=dataframe_only_samples.columns, columns=dataframe_only_samples.columns) #Add index
     snp_distance_df = snp_distance_df.astype(int)
-    snp_distance_df.to_csv(output_file, sep='\t', index=True)
+    pairwise = snp_distance_df.stack().reset_index(name='distance').rename(columns={'level_0': 'sample_1', 'level_1': 'sample_2'})
+    snp_distance_df.to_csv(output_matrix, sep='\t', index=True)
+    pairwise.to_csv(output_pairwise, sep='\t', header=False, index=False)
 
 def hamming_distance_matrix(dataframe, output_file):
     dataframe_only_samples = dataframe.set_index(dataframe['Position']).drop(['Position','N','Samples'], axis=1) #extract three first colums and use 'Position' as index
@@ -535,8 +641,8 @@ def matrix_to_rdf(snp_matrix, output_name):
     #output_name = ".".join(tsv_matrix.split(".")[:-1]) + ".rdf"
     #output_name = output_name + ".rdf"
 
-    max_samples = max(snp_matrix.N.tolist())
-    snp_matrix = snp_matrix[snp_matrix.N < max_samples]
+    #max_samples = max(snp_matrix.N.tolist())
+    #snp_matrix = snp_matrix[snp_matrix.N < max_samples]
     
     with open(output_name, 'w+') as fout:
         snp_number = snp_matrix.shape[0]
@@ -595,19 +701,19 @@ def ddtb_compare(final_database, distance=0):
 
 
     logger.info(BLUE + BOLD + "Comparing all samples in " + database_file + END_FORMATTING)
-    prior_pairwise = datetime.datetime.now()
-
+    #prior_pairwise = datetime.datetime.now()
     #Calculate pairwise snp distance for all and save file
-    logger.info(CYAN + "Pairwise distance" + END_FORMATTING)
-    pairwise_file = output_path + ".snp.pairwise.tsv"
-    snp_distance_pairwise(presence_ddbb, pairwise_file)
-    after_pairwise = datetime.datetime.now()
-    logger.info("Done with pairwise in: %s" % (after_pairwise - prior_pairwise))
+    #logger.info(CYAN + "Pairwise distance" + END_FORMATTING)
+    
+    #snp_distance_pairwise(presence_ddbb, pairwise_file)
+    #after_pairwise = datetime.datetime.now()
+    #logger.info("Done with pairwise in: %s" % (after_pairwise - prior_pairwise))
 
     #Calculate snp distance for all and save file
     logger.info(CYAN + "SNP distance" + END_FORMATTING)
     snp_dist_file = output_path + ".snp.tsv"
-    snp_distance_matrix(presence_ddbb, snp_dist_file)
+    pairwise_file = output_path + ".snp.pairwise.tsv"
+    snp_distance_matrix(presence_ddbb, snp_dist_file, pairwise_file)
 
     #Calculate hamming distance for all and save file
     logger.info(CYAN + "Hamming distance" + END_FORMATTING)
@@ -644,14 +750,14 @@ def ddtb_compare(final_database, distance=0):
 
     #Output files with group/cluster assigned to samples
     logger.info(CYAN + "Assigning clusters" + END_FORMATTING)
-    #matrix_to_cluster(pairwise_file, snp_dist_file, distance=distance)
+    matrix_to_cluster(pairwise_file, snp_dist_file, distance=distance)
 
     
 
 
 if __name__ == '__main__':
     args = get_arguments()
-    input_dir = os.path.abspath(args.input_dir)
+    
     output_dir = os.path.abspath(args.output)
     group_name = output_dir.split('/')[-1]
     check_create_dir(output_dir)
@@ -686,11 +792,21 @@ if __name__ == '__main__':
 
     group_compare = os.path.join(output_dir, group_name)
     compare_snp_matrix = group_compare + ".tsv"
-    ddtb_add(input_dir, group_compare, sample_filter=args.sample_list)
-    if args.recalibrate == False:
-        ddtb_compare(compare_snp_matrix, distance=args.distance)
+    
+    if args.only_compare == False:
+        input_dir = os.path.abspath(args.input_dir)
+        ddtb_add(input_dir, group_compare, sample_filter=args.sample_list)
+        
+        if args.recalibrate == False:
+            ddtb_compare(compare_snp_matrix, distance=args.distance)
+        else:
+            compare_snp_matrix_recal = group_compare + ".revised.tsv"
+            compare_snp_matrix_recal_intermediate = group_compare + ".revised_intermediate.tsv"
+            recalibrated_snp_matrix = recalibrate_ddbb_vcf(compare_snp_matrix, args.recalibrate)
+            recalibrated_snp_matrix.to_csv(compare_snp_matrix_recal, sep="\t", index=False)
+            recalibrated_snp_matrix_intermediate = recalibrate_ddbb_vcf_intermediate(compare_snp_matrix, args.recalibrate)
+            recalibrated_snp_matrix_intermediate.to_csv(compare_snp_matrix_recal_intermediate, sep="\t", index=False)
+            ddtb_compare(compare_snp_matrix_recal, distance=args.distance)
     else:
-        compare_snp_matrix_recal = group_compare + ".revised.tsv"
-        recalibrated_snp_matrix = recalibrate_ddbb_vcf(compare_snp_matrix, args.recalibrate)
-        recalibrated_snp_matrix.to_csv(compare_snp_matrix_recal, sep="\t", index=False)
-        ddtb_compare(compare_snp_matrix_recal, distance=args.distance)
+        compare_matrix = os.path.abspath(args.only_compare)
+        ddtb_compare(compare_matrix, distance=args.distance)

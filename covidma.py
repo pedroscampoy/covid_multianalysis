@@ -23,7 +23,7 @@ from bam_variant import picard_dictionary, samtools_faidx, picard_markdup, ivar_
 from vcf_process import filter_tsv_variants, vcf_consensus_filter, highly_hetz_to_bed, poorly_covered_to_bed, non_genotyped_to_bed
 from annotation import annotate_snpeff, annotate_pangolin
 from species_determination import mash_screen, extract_species_from_screen
-from compare_snp import ddtb_add, ddtb_compare, recalibrate_ddbb_vcf
+from compare_snp import ddtb_add, ddtb_compare, recalibrate_ddbb_vcf, recalibrate_ddbb_vcf_intermediate
 
 """
 =============================================================
@@ -347,7 +347,7 @@ def main():
                 logger.info(YELLOW + DIM + out_ivar_variant_file + " EXIST\nOmmiting Variant call for  sample " + sample + END_FORMATTING)
             else:
                 logger.info(GREEN + "Calling variants with ivar in sample " + sample + END_FORMATTING)
-                ivar_variants(reference, output_markdup_trimmed_file, out_variant_dir, sample, annotation, min_quality=20, min_frequency_threshold=0.05, min_depth=5)
+                ivar_variants(reference, output_markdup_trimmed_file, out_variant_dir, sample, annotation, min_quality=20, min_frequency_threshold=0.05, min_depth=1)
 
 
             #VARIANT FILTERING ##################################
@@ -482,9 +482,16 @@ def main():
 
     ddtb_add(out_filtered_ivar_dir, full_path_compare)
     compare_snp_matrix_recal = full_path_compare + ".revised.tsv"
+    compare_snp_matrix_recal_intermediate = full_path_compare + ".revised_intermediate.tsv"
     recalibrated_snp_matrix = recalibrate_ddbb_vcf(compare_snp_matrix, out_map_dir)
     recalibrated_snp_matrix.to_csv(compare_snp_matrix_recal, sep="\t", index=False)
+    recalibrated_snp_matrix_intermediate = recalibrate_ddbb_vcf_intermediate(compare_snp_matrix, out_map_dir)
+    recalibrated_snp_matrix_intermediate.to_csv(compare_snp_matrix_recal_intermediate, sep="\t", index=False)
     ddtb_compare(compare_snp_matrix_recal, distance=0)
+
+
+        
+    
 
     logger.info("\n\n" + MAGENTA + BOLD + "COMPARING FINISHED IN GROUP: " + group_name + END_FORMATTING + "\n")
 
