@@ -347,103 +347,34 @@ def matrix_to_cluster(pairwise_file, matrix_file, distance=0):
     final_cluster.to_csv(final_cluster_file, sep='\t', index=False)
 
 
-def recalibrate_ddbb_vcf(snp_matrix_ddbb_file, bam_folder):
-    
-    df_matrix = pd.read_csv(snp_matrix_ddbb_file, sep="\t")
-    
-    sample_list_matrix = df_matrix.columns[3:]
-    n_samples = len(sample_list_matrix)
-    
-    #Iterate over non unanimous positions 
-    for index, data_row in df_matrix[df_matrix.N < n_samples].iloc[:,3:].iterrows():
-        #Extract its position
-        whole_position = df_matrix.loc[index,"Position"]
-        row_reference = whole_position.split('|')[0]
-        row_position = int(whole_position.split('|')[2])
-        row_alt_snp = whole_position.split('|')[3]
+def revised_df(df, min_threshold_include=0.7, min_threshold_discard=0.7, remove_faulty=True, drop_samples=True, drop_positions=True):
+    if remove_faulty == True:
 
-        #Use enumerate to retrieve column index (column ondex + 3)
-        #find positions with frequency >80% in mpileup execution
-        #Returns ! for coverage 0
-        new_presence_row = [recheck_variant_mpileup(row_reference, row_position, row_alt_snp, df_matrix.columns[n + 3], x, bam_folder) for n,x in enumerate(data_row)]
-        
-        df_matrix.iloc[index, 3:] = new_presence_row
-        df_matrix.loc[index, 'N'] = sum([x == 1 for x in new_presence_row])
+        uncovered_positions = df.iloc[:,3:].apply(lambda x: sum((x == '!'))/len(x), axis=1)
+        heterozygous_positions = df.iloc[:,3:].apply(lambda x: sum([i not in ['!',0,1, '0', '1'] for i in x.values])/len(x), axis=1)
+        report_position = pd.DataFrame({'Position': df.Position, 'uncov_fract': uncovered_positions, 'htz_frac': heterozygous_positions, 'faulty_frac': uncovered_positions + heterozygous_positions})
+        faulty_positions = report_position['Position'][report_position.faulty_frac >= min_threshold_discard].tolist()
 
-    return df_matrix
 
-def recheck_variant_mpileup(reference_id, position, alt_snp, sample, previous_binary, bam_folder):
+        uncovered_samples = df.iloc[:,3:].apply(lambda x: sum((x == '!'))/len(x), axis=0)
+        heterozygous_samples = df.iloc[:,3:].apply(lambda x: sum([i not in ['!',0,1, '0', '1'] for i in x.values])/len(x), axis=0)
+        report_samples = pd.DataFrame({'sample': df.iloc[:,3:].columns, 'uncov_fract': uncovered_samples, 'htz_frac': heterozygous_samples, 'faulty_frac': uncovered_samples + heterozygous_samples})
+        faulty_samples = report_samples['sample'][report_samples.faulty_frac >= min_threshold_discard].tolist()
 
-    """
-    http://www.htslib.org/doc/samtools-mpileup.html
-    www.biostars.org/p/254287
-    In the pileup format (without -u or -g), each line represents a genomic position, consisting of chromosome name, 1-based coordinate,
-    reference base, the number of reads covering the site, read bases, base qualities and alignment mapping qualities. Information on match,
-    mismatch, indel, strand, mapping quality and start and end of a read are all encoded at the read base column. At this column, a dot stands
-    for a match to the reference base on the forward strand, a comma for a match on the reverse strand, a '>' or '<' for a reference skip,
-    ACGTN for a mismatch on the forward strand and acgtn for a mismatch on the reverse strand. A pattern +[0-9]+[ACGTNacgtn]+ indicates there
-    is an insertion between this reference position and the next reference position. The length of the insertion is given by the integer in the
-    pattern, followed by the inserted sequence. Similarly, a pattern -[0-9]+[ACGTNacgtn]+ represents a deletion from the reference. The deleted
-    bases will be presented as * in the following lines. Also at the read base column, a symbol ^ marks the start of a read. The ASCII of the
-    character following ^ minus 33 gives the mapping quality. A symbol $ marks the end of a read segment
-    """
-    previous_binary = int(previous_binary)
-    position = int(position)
+        if drop_positions == True:
+            df = df[~df.Position.isin(faulty_positions)]
+        if drop_samples == True:
+            df = df.drop(faulty_samples, axis=1)
 
-    #Identify correct bam
-    for root, _, files in os.walk(bam_folder):
-        for name in files:
-            filename = os.path.join(root, name)
-            sample_file = name.split('.')[0]
-            if name.startswith(sample) and sample_file == sample and name.endswith(".bam"):
-                bam_file = filename
-    #format position for mpileup execution (NC_000962.3:632455-632455)
-    position_format = reference_id + ":" + str(position) + "-" + str(position)
-    
-    #Execute command and retrieve output
-    cmd = ["samtools", "mpileup", "-aa", "-r", position_format, bam_file]
-    text_mpileup = subprocess.run(cmd,stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True, universal_newlines=True) 
-    split_mpileup = text_mpileup.stdout.split()
-    #Extract 5th column to find variants
-    mpileup_reference = split_mpileup[0]
-    mpileup_position = int(split_mpileup[1])
-    mpileup_depth = int(split_mpileup[3])
-    mpileup_variants = split_mpileup[4]
-    variant_list = list(mpileup_variants)
-    variants_to_account = ['A', 'T', 'C', 'G', '.', ',']
-    variant_upper_list = [x.upper() for x in variant_list]
-    variant_upper_list = [x for x in variant_upper_list if x in variants_to_account]
+        logger.info('FAULTY POSITIONS:\n{}\n\nFAULTY SAMPLES:\n{}'.format(("\n").join(faulty_positions), ("\n").join(faulty_samples)))
 
-    if len(variant_upper_list) == 0:
-        most_counted_variant = "*"
-        mpileup_depth = 0
-
-    if mpileup_depth > 0:
-        most_counted_variant = max(set(variant_upper_list), key = variant_upper_list.count)
-        count_all_variants = {x:variant_upper_list.count(x) for x in variant_upper_list}
-        freq_most_frequent = count_all_variants[most_counted_variant]/len(variant_upper_list)
-
-        if freq_most_frequent <= 0.8:
-            logger.info('WARNING: SAMPLE: {} has heterozygous position at {} with frequency {}'.format(sample, position, freq_most_frequent))
-
-    elif mpileup_depth == 0:
-        logger.info('WARNING: SAMPLE: {} has 0 depth in position {}'.format(sample, position))
-        return 0
-    
-    if reference_id != mpileup_reference:
-        logger.info('ERROR: References are different')
-        sys.exit(1)
-    else:
-        if (most_counted_variant == ".") or (most_counted_variant == ",") or (most_counted_variant == "*") or (freq_most_frequent < 0.8) or (most_counted_variant != alt_snp):
-            if previous_binary != 0:
-                logger.info('SAMPLE: {} has been corrected in position {}: {}=>0'.format(sample, position, previous_binary))
-            return 0
-        elif (most_counted_variant == alt_snp) and (freq_most_frequent >= 0.8) and (position == mpileup_position):
-            if previous_binary != 1:
-                logger.info('SAMPLE: {} has been corrected in position {}: {}=>1'.format(sample, position, previous_binary))
-            return 1
-        else:
-            return 'Ñ'
+    df = df.replace('!', 0)
+    df.iloc[:,3:] = df.iloc[:,3:].astype(float)
+    f = lambda x: 1 if x >= min_threshold_include else 0 # IF HANDLE HETEROZYGOUS CHANGE THIS 0 for X or 0.5
+    df.iloc[:,3:] = df.iloc[:,3:].applymap(f)
+    df.N = df.apply(lambda x: sum(x[3:]), axis=1)
+    df = df[df.N > 0]
+    return df
 
 def recheck_variant_mpileup_intermediate(reference_id, position, alt_snp, sample, previous_binary, bam_folder):
 
@@ -800,12 +731,12 @@ if __name__ == '__main__':
         if args.recalibrate == False:
             ddtb_compare(compare_snp_matrix, distance=args.distance)
         else:
-            compare_snp_matrix_recal = group_compare + ".revised.tsv"
+            compare_snp_matrix_recal = group_compare + ".revised.final.tsv"
             compare_snp_matrix_recal_intermediate = group_compare + ".revised_intermediate.tsv"
-            recalibrated_snp_matrix = recalibrate_ddbb_vcf(compare_snp_matrix, args.recalibrate)
-            recalibrated_snp_matrix.to_csv(compare_snp_matrix_recal, sep="\t", index=False)
             recalibrated_snp_matrix_intermediate = recalibrate_ddbb_vcf_intermediate(compare_snp_matrix, args.recalibrate)
             recalibrated_snp_matrix_intermediate.to_csv(compare_snp_matrix_recal_intermediate, sep="\t", index=False)
+            recalibrated_revised_df = revised_df(recalibrated_snp_matrix_intermediate, min_threshold_include=0.7, min_threshold_discard=0.7, remove_faulty=True, drop_samples=True, drop_positions=True)
+            recalibrated_revised_df.to_csv(compare_snp_matrix_recal, sep="\t", index=False)
             ddtb_compare(compare_snp_matrix_recal, distance=args.distance)
     else:
         compare_matrix = os.path.abspath(args.only_compare)
