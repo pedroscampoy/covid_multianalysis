@@ -20,9 +20,8 @@ from preprocessing import fastqc_quality, fastp_trimming, format_html_image
 from pe_mapper import bwa_mapping, sam_to_index_bam
 from bam_variant import picard_dictionary, samtools_faidx, picard_markdup, ivar_trim, ivar_variants, ivar_consensus, \
     replace_consensus_header, create_bamstat, create_coverage
-from vcf_process import filter_tsv_variants, vcf_consensus_filter, highly_hetz_to_bed, poorly_covered_to_bed, non_genotyped_to_bed
-from annotation import annotate_snpeff, annotate_pangolin
-from species_determination import mash_screen, extract_species_from_screen
+from vcf_process import filter_tsv_variants
+from annotation import annotate_snpeff, annotate_pangolin, user_annotation
 from compare_snp import ddtb_add, ddtb_compare, recalibrate_ddbb_vcf_intermediate, revised_df
 
 """
@@ -82,9 +81,7 @@ def main():
         input_group.add_argument('-s', '--sample', metavar="sample", type=str, required=False, help='Sample to identify further files')
         input_group.add_argument('-S', '--sample_list', type=str, required=False, help='Sample names to analyse only in the file supplied')
         input_group.add_argument('-p', '--primers', type=str, default='/home/laura/COVID/primers/nCoV-2019.bed', required=False, help='Bed file including primers to trim')
-        input_group.add_argument('-B', '--annot_bed', type=str, required=False, action='append', help='bed file to annotate')
-        input_group.add_argument('-V', '--annot_vcf', type=str, required=False, action='append', help='vcf file to annotate')
-
+        
         quality_group = parser.add_argument_group('Quality parameters', 'parameters for diferent triming conditions')
 
         quality_group.add_argument('-c', '--coverage20', type=int, default=90, required=False, help='Minimum percentage of coverage at 20x to clasify as uncovered (Default 90)')
@@ -97,15 +94,15 @@ def main():
 
         params_group = parser.add_argument_group('Parameters', 'parameters for diferent stringent conditions')
 
-        params_group.add_argument('-T', '--threads', type=str, dest = "threads", required=False, default=16, help='Threads to use')
-        params_group.add_argument('-M', '--memory', type=str, dest = "memory", required=False, default=32, help='Max memory to use')
+        params_group.add_argument('-T', '--threads', type=str, dest="threads", required=False, default=16, help='Threads to use')
+        params_group.add_argument('-M', '--memory', type=str, dest="memory", required=False, default=32, help='Max memory to use')
+
+        annot_group = parser.add_argument_group('Annotation', 'parameters for variant annotation')
+
+        annot_group.add_argument('-B', '--annot_bed', type=str, default=[], required=False, action='append', help='bed file to annotate')
+        annot_group.add_argument('-V', '--annot_vcf', type=str, default=[], required=False, action='append', help='vcf file to annotate')
         
         """
-        vcf_group = parser.add_argument_group('VCF filters', 'parameters for variant filtering')
-
-        vcf_group.add_argument('-b', '--bed_remove', type=str, required=False, default=False, help='BED file with position ranges to filter from final vcf')
-        vcf_group.add_argument('-m', '--maxnocallfr', type=str, required=False, default=0.1, help='maximun proportion of samples with non genotyped alleles')
-
         annot_group = parser.add_argument_group('Annotation', 'parameters for variant annotation')
 
         annot_group.add_argument('--mash_database', type=str, required=False, default="/home/pjsola/REFERENCES/mash/RefSeq88n.msh", help='MASH ncbi annotation containing all species database')
@@ -209,12 +206,10 @@ def main():
     out_compare_dir = os.path.join(output, "Compare")
 
     out_annot_dir = os.path.join(output, "Annotation")
-    out_annot_snpeff_dir = os.path.join(out_annot_dir, "snpeff")
-    out_annot_pangolin_dir = os.path.join(out_annot_dir, "pangolin")
+    out_annot_snpeff_dir = os.path.join(out_annot_dir, "snpeff") #subfolder
+    out_annot_pangolin_dir = os.path.join(out_annot_dir, "pangolin") #subfolder
+    out_annot_user_dir = os.path.join(out_annot_dir, "user") #subfolder
 
-    #highly_hetz_bed = os.path.join(out_variant_dir, "highly_hetz.bed")
-    #non_genotyped_bed = os.path.join(out_variant_dir, "non_genotyped.bed")
-    #poorly_covered_bed = os.path.join(out_cov_dir, "poorly_covered.bed")
 
     for r1_file, r2_file in zip(r1, r2):
         #EXtract sample name
@@ -359,7 +354,7 @@ def main():
                 logger.info(YELLOW + DIM + out_ivar_filtered_file + " EXIST\nOmmiting Variant filtering for  sample " + sample + END_FORMATTING)
             else:
                 logger.info(GREEN + "Filtering variants in sample " + sample + END_FORMATTING)
-                filter_tsv_variants(out_ivar_variant_file, out_filtered_ivar_dir, min_frequency=0.8, min_total_depth=10, min_alt_dp=4, is_pass=True, only_snp=True)
+                filter_tsv_variants(out_ivar_variant_file, out_filtered_ivar_dir, min_frequency=0.7, min_total_depth=10, min_alt_dp=4, is_pass=True, only_snp=True)
             
             #CREATE CONSENSUS with ivar consensus##################
             #######################################################
@@ -445,6 +440,19 @@ def main():
                         logger.info(GREEN + "Annotating sample with snpEff: " + sample + END_FORMATTING)
                         output_vcf = os.path.join(out_annot_snpeff_dir, sample + '.vcf')
                         annotate_snpeff(filename, output_vcf, out_annot_file)
+    ####USER DEFINED
+    if not args.annot_bed and not args.annot_vcf:
+        logger.info(YELLOW + BOLD + "Ommiting User Annotation, no BED or VCF files supplied" + END_FORMATTING)
+    else:
+        check_create_dir(out_annot_user_dir)
+        for root, _, files in os.walk(out_filtered_ivar_dir):
+            if root == out_filtered_ivar_dir: 
+                for name in files:
+                    if name.endswith('.tsv'):
+                        sample = name.split('.')[0]
+                        filename = os.path.join(root, name)
+                        out_annot_file = os.path.join(out_annot_user_dir, sample + ".tsv")
+                        user_annotation(filename, out_annot_file, vcf_files=args.annot_vcf, bed_files=args.annot_bed)
     
     ####PANGOLIN
     for root, _, files in os.walk(out_consensus_dir):

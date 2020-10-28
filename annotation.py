@@ -10,7 +10,6 @@ import re
 import subprocess
 #from tabulate import tabulate
 from misc import check_create_dir, execute_subprocess
-from vcf_process import bed_to_df, add_bed_info, annotate_bed_s, calculate_ALT_AD, calculate_true_ALT
 
 logger = logging.getLogger()
 
@@ -40,7 +39,7 @@ def tsv_to_vcf(tsv_file):
 def snpeff_execution(vcf_file, annot_file, database=False):
     df_vcf = pd.read_csv(vcf_file, sep="\t")
     if df_vcf.shape[0] != 0:
-        cmd = ["snpEff", database, vcf_file]
+        cmd = ["snpEff", "-noStats", database, vcf_file]
         with open(annot_file, "w+") as outfile:
             #calculate coverage and save it in th eoutput file
             subprocess.run(cmd,
@@ -126,41 +125,6 @@ def annotate_pangolin(input_file, output_folder, output_filename, threads=8, max
     cmd = ["pangolin", input_file, "--outdir", output_folder, "--outfile", output_filename, "--threads", str(threads), "--max-ambig", str(max_ambig)]
     execute_subprocess(cmd)
 
-
-# def final_annotation(vcf_file_annot, *bed_files):
-#     """
-#     import annotated vcf with snpEff
-#     add Lineage info -> output final lineage to an external file
-#     add resistance info -> output final lineage to an external file
-#     """
-#     df_vcf = import_annot_to_pandas(vcf_file_annot, sep='\t')
-
-#     vcf_path = os.path.abspath(vcf_file_annot)
-#     output_dir = ("/").join(vcf_path.split("/")[:-1])
-#     vcf_name = vcf_path.split("/")[-1]
-
-#     tab_name = (".").join(vcf_name.split(".")[:-1])
-#     extend_final = ".annot.tsv"
-
-#     annotate_bed_s(df_vcf, *bed_files)
-
-#     #Add lineage info 
-#     #add_lineage_Coll(df_vcf)
-
-#     #Add resistance info
-
-#     #Retrieve only annotation fields
-#     #df_vcf_annot = df_vcf[['#CHROM', 'POS', 'ID', 'REF', 'ALT','Annotation',
-#     #   'Annotation_Impact', 'Gene_Name', 'Gene_ID', 'Feature_Type',
-#     #   'Feature_ID', 'Transcript_BioType', 'Rank', 'HGVS.c', 'HGVS.p',
-#     #   'cDNA.pos / cDNA.length', 'CDS.pos / CDS.length', 'AA.pos / AA.length','Is_essential','Product', 'Lineage', 'Resistance']]
-    
-#     #output all raw info into a file
-#     new_out_file = tab_name + extend_final
-#     output_raw_tab = os.path.join(output_dir, new_out_file)
-#     df_vcf.to_csv(output_raw_tab, sep='\t', index=False)
-    
-
 def get_reverse(nucleotyde):
     nucleotyde = str(nucleotyde)
     nucleotyde_rev = {'A' : 'T',
@@ -174,7 +138,103 @@ def get_reverse(nucleotyde):
     else:
         return nucleotyde_rev[nucleotyde]
 
+def import_VCF_to_pandas(vcf_file):
+    header_lines = 0
+    with open(vcf_file) as f:
+        first_line = f.readline().strip()
+        next_line = f.readline().strip()
+        while next_line.startswith("##"):
+            header_lines = header_lines + 1
+            #print(next_line)
+            next_line = f.readline()
 
+    if first_line.startswith('##'):
+        df = pd.read_csv(vcf_file, sep='\t', skiprows=[header_lines], header=header_lines)
+        
+        df['ALT']=df['ALT'].str.upper()
+        df['REF']=df['REF'].str.upper()
+        #Check INFO
+        if 'INFO' in df.columns:
+            return df
+        else:
+            last_column = df.columns[-1]
+            df = df.rename(columns={last_column: 'INFO'})
+            return df
+    else:
+        print("This vcf file is not properly formatted")
+        sys.exit(1)
+
+def annotate_vcfs(tsv_df, vcfs):
+    df = pd.read_csv(tsv_df, sep="\t")
+    for vcf in vcfs:
+        print("ANNOTATING VCF: ", vcf)
+        header = (".").join(vcf.split("/")[-1].split(".")[0:-1])
+        dfvcf = import_VCF_to_pandas(vcf)
+        dfvcf = dfvcf[['POS', 'REF', 'ALT', 'INFO']]
+        dfvcf = dfvcf.rename(columns={'INFO': header})
+        df = df.merge(dfvcf, how='left')
+    return df
+
+def bed_to_df(bed_file):
+    """
+    Import bed file separated by tabs into a pandas df
+    -Handle header line
+    -Handle with and without description (If there is no description adds true or false to annotated df)
+    """
+    header_lines = 0
+    #Handle likely header by checking colums 2 and 3 as numbers
+    with open(bed_file, 'r') as f:
+        next_line = f.readline().strip()
+        line_split = next_line.split(None) #This split by any blank character
+        start = line_split[1]
+        end = line_split[2]
+        while not start.isdigit() and not end.isdigit():
+            header_lines = header_lines + 1
+            next_line = f.readline().strip()
+            line_split = next_line.split(None) #This split by any blank character
+            start = line_split[1]
+            end = line_split[2]
+
+    if header_lines == 0:
+        df = pd.read_csv(bed_file, sep="\t", header=None) #delim_whitespace=True
+    else:
+        df = pd.read_csv(bed_file, sep="\t", skiprows=header_lines, header=None) #delim_whitespace=True
+
+    df = df.iloc[:,0:4]
+    df.columns = ["#CHROM", "start", "end", "description"]
+        
+    return df
+
+def add_bed_info(bed_df, position):
+    """
+    Identify a position within a range
+    credits: https://stackoverflow.com/questions/6053974/python-efficiently-check-if-integer-is-within-many-ranges
+    """
+    #dict_position = bed_to_dict(bed_file)
+    if any(start <= position <= end for (start, end) in zip(bed_df.start.values.tolist(), bed_df.end.values.tolist())):
+        description_out = bed_df.description[(bed_df.start <= position) & (bed_df.end >= position)].values[0]
+        return description_out
+    else:
+        return None
+
+def annotate_bed_s(tsv_df, bed_files):
+    df = pd.read_csv(tsv_df, sep="\t")
+
+    variable_list = [ x.split("/")[-1].split(".")[0] for x in bed_files] #extract file name and use it as header
+    
+    for variable_name, bed_file in zip(variable_list,bed_files):
+        print("ANNOTATING BED: ", bed_file)
+        bed_annot_df = bed_to_df(bed_file)
+        df[variable_name] = df['POS'].apply(lambda x: add_bed_info(bed_annot_df,x))
+    return df
+
+def user_annotation(tsv_file, output_file, vcf_files=[], bed_files=[]):
+    bed_df = annotate_bed_s(tsv_file, bed_files)
+    vcf_df = annotate_vcfs(tsv_file, vcf_files)
+
+    df = bed_df.merge(vcf_df)
+
+    df.to_csv(output_file, sep="\t", index=False)
 
 
 if __name__ == '__main__':
