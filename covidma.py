@@ -22,7 +22,7 @@ from bam_variant import picard_dictionary, samtools_faidx, picard_markdup, ivar_
     replace_consensus_header, create_bamstat, create_coverage
 from vcf_process import filter_tsv_variants
 from annotation import annotate_snpeff, annotate_pangolin, user_annotation
-from compare_snp import ddtb_add, ddtb_compare, recalibrate_ddbb_vcf_intermediate, revised_df
+from compare_snp import ddtb_add, ddtb_compare, ddbb_create_intermediate, revised_df
 
 """
 =============================================================
@@ -403,7 +403,7 @@ def main():
     ###################fastqc OUTPUT FORMAT FOR COMPARISON
     ######################################################
     logger.info(GREEN + "Creating summary report for quality result " + END_FORMATTING)
-    format_html_image(out_qc_dir)
+    #format_html_image(out_qc_dir)
 
     ###############################coverage OUTPUT SUMMARY
     ######################################################
@@ -470,13 +470,6 @@ def main():
                         annotate_pangolin(filename, out_annot_pangolin_dir, out_pangolin_filename, threads=args.threads, max_ambig=0.6)
 
 
-
-
-
-
-
-
-
     ################SNP COMPARISON using tsv variant files
     ######################################################
     logger.info("\n\n" + BLUE + BOLD + "STARTING COMPARISON IN GROUP: " + group_name + END_FORMATTING + "\n")
@@ -486,16 +479,16 @@ def main():
     path_compare = os.path.join(out_compare_dir, folder_compare)
     check_create_dir(path_compare)
     full_path_compare = os.path.join(path_compare, group_name)
-    compare_snp_matrix = full_path_compare + ".tsv"
 
-    ddtb_add(out_filtered_ivar_dir, full_path_compare)
+    #ddtb_add(out_filtered_ivar_dir, full_path_compare)
     compare_snp_matrix_recal = full_path_compare + ".revised.final.tsv"
     compare_snp_matrix_recal_intermediate = full_path_compare + ".revised_intermediate.tsv"
-    recalibrated_snp_matrix_intermediate = recalibrate_ddbb_vcf_intermediate(compare_snp_matrix, out_map_dir)
+    recalibrated_snp_matrix_intermediate = ddbb_create_intermediate(out_variant_ivar_dir, out_stats_coverage_dir, min_freq_discard=0.1)
     recalibrated_snp_matrix_intermediate.to_csv(compare_snp_matrix_recal_intermediate, sep="\t", index=False)
-    recalibrated_revised_df = revised_df(recalibrated_snp_matrix_intermediate, min_threshold_include=0.7, min_threshold_discard=0.7, remove_faulty=True, drop_samples=True, drop_positions=True)
+    recalibrated_revised_df = revised_df(recalibrated_snp_matrix_intermediate, path_compare, min_freq_include=0.7, min_threshold_discard=0.7, remove_faulty=True, drop_samples=True, drop_positions=True)
     recalibrated_revised_df.to_csv(compare_snp_matrix_recal, sep="\t", index=False)
     ddtb_compare(compare_snp_matrix_recal, distance=0)
+
 
     logger.info("\n\n" + MAGENTA + BOLD + "COMPARING FINISHED IN GROUP: " + group_name + END_FORMATTING + "\n")
 

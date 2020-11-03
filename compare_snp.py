@@ -4,6 +4,7 @@ import os
 import re
 import logging
 import pandas as pd
+import numpy as np
 import argparse
 import sys
 import subprocess
@@ -37,7 +38,7 @@ def get_arguments():
     parser.add_argument('-s', '--sample_list', default=False, required=False, help='File with sample names to analyse instead of all samples')
     parser.add_argument('-d', '--distance', default=0, required=False, help='Minimun distance to cluster groups after comparison')
     parser.add_argument('-c', '--only-compare', dest="only_compare", required=False, default=False, help='Add already calculated snp binary matrix')
-    parser.add_argument('-r', '--recalibrate', required= False, type=str, default=False, help='Bam folder')
+    parser.add_argument('-r', '--recalibrate', required= False, type=str, default=False, help='Coverage folder')
     parser.add_argument('-R', '--reference', required= False, type=str, default=False, help='Reference fasta file used in original variant calling')
 
     parser.add_argument('-o', '--output', type=str, required=True, help='Name of all the output files, might include path')
@@ -68,6 +69,124 @@ def check_create_dir(path):
 def blank_database():
     new_pandas_ddtb = pd.DataFrame(columns=['Position','N', 'Samples'])
     return new_pandas_ddtb
+
+####COMPARE SNP 2.0
+def import_tsv_variants(tsv_file,  min_total_depth=4, min_alt_dp=4, only_snp=True):
+    base_file = os.path.basename(tsv_file)
+    input_file = os.path.abspath(tsv_file)
+    sample = base_file.split(".")[0]
+
+    df = pd.read_csv(input_file, sep='\t')
+    df = df.drop_duplicates(subset=['POS', 'REF', 'ALT'], keep="first")
+
+    df = df[((df.TOTAL_DP >= min_total_depth) &
+                    (df.ALT_DP >= min_alt_dp))]
+
+    df = df[['REGION','POS', 'REF', 'ALT', 'ALT_FREQ']]
+    df = df.rename(columns={'ALT_FREQ' : sample})
+    if only_snp == True:
+        df = df[~(df.ALT.str.startswith('+') | df.ALT.str.startswith('-'))]
+        return df
+    else:
+        return df
+
+def extract_lowfreq(tsv_file,  min_total_depth=4, min_alt_dp=4, only_snp=True):
+    base_file = os.path.basename(tsv_file)
+    input_file = os.path.abspath(tsv_file)
+    sample = base_file.split(".")[0]
+
+    df = pd.read_csv(input_file, sep='\t')
+    df = df.drop_duplicates(subset=['POS', 'REF', 'ALT'], keep="first")
+
+    df = df[(df.ALT_DP <= min_alt_dp)]
+
+    df = df[['REGION','POS', 'REF', 'ALT', 'ALT_FREQ']]
+    df['ALT_FREQ'] = '-'
+    df = df.rename(columns={'ALT_FREQ' : sample})
+    if only_snp == True:
+        df = df[~(df.ALT.str.startswith('+') | df.ALT.str.startswith('-'))]
+        return df
+    else:
+        return df
+
+def extract_uncovered(cov_file, min_total_depth=4):
+    base_file = os.path.basename(cov_file)
+    input_file = os.path.abspath(cov_file)
+    sample = base_file.split(".")[0]
+
+    df = pd.read_csv(input_file, sep="\t", header=None)
+    df.columns = ['REGION', 'POS', sample]
+    df = df[df[sample] == 0]
+    df = df.replace(0,'!')
+    return df
+
+def ddbb_create_intermediate(variant_dir, coverage_dir, min_freq_discard=0.1):
+    df = pd.DataFrame(columns=['REGION','POS', 'REF', 'ALT'])
+    #Merge all raw
+    for root, _, files in os.walk(variant_dir):
+        for name in files:
+            if name.endswith('.tsv'):
+                filename = os.path.join(root, name)
+                dfv = import_tsv_variants(filename)
+                df = df.merge(dfv, how='outer')
+    #Rounf frequencies
+    df = df.round(2)
+    #Remove <= 0.1 (parameter in function)
+    handle_lowfreq = lambda x: None if x <= min_freq_discard else x # IF HANDLE HETEROZYGOUS CHANGE THIS 0 for X or 0.5
+    df.iloc[:,4:] = df.iloc[:,4:].applymap(handle_lowfreq)
+    #Drop all NaN rows
+    df['AllNaN'] = df.apply(lambda x: x[4:].isnull().values.all(), axis=1)
+    df = df[df.AllNaN == False]
+    df = df.drop(['AllNaN'], axis=1).reset_index(drop=True)
+
+    #Include poorly covered
+    for root, _, files in os.walk(variant_dir):
+        for name in files:
+            if name.endswith('.tsv'):
+                filename = os.path.join(root, name)
+                sample = name.split('.')[0]
+                dfl = extract_lowfreq(filename)
+                df[sample].update(df[['REGION', 'POS', 'REF', 'ALT']].merge(dfl, on=['REGION', 'POS', 'REF', 'ALT'], how='left')[sample])
+
+    #Include uncovered
+    for root, _, files in os.walk(coverage_dir):
+        for name in files:
+            if name.endswith('.cov'):
+                filename = os.path.join(root, name)
+                sample = name.split('.')[0]
+                if sample in df.columns[4:]:
+                    dfc = extract_uncovered(filename)
+                    #df.update(df[['REGION', 'POS']].merge(dfc, on=['REGION', 'POS'], how='left'))
+                    df[sample].update(df[['REGION', 'POS']].merge(dfc, on=['REGION', 'POS'], how='left')[sample])
+                    #df.combine_first(df[['REGION', 'POS']].merge(dfc, how='left'))
+    #Asign 0 to rest (Absent)
+    df = df.fillna(0)
+
+    #Determine N (will help in poorly covered determination)
+    def estract_sample_count(row):
+        count_list = [i not in ['!',0,'0'] for i in row[4:]]
+        samples = np.array(df.columns[4:])
+        #samples[np.array(count_list)] filter array with True False array
+        return (sum(count_list), (',').join(samples[np.array(count_list)]))
+
+    if 'N' in df.columns:
+        df = df.drop(['N','Samples'], axis=1)
+    if 'Position' in df.columns:
+        df = df.drop('Position', axis=1)
+
+    df[['N', 'Samples']] = df.apply(estract_sample_count, axis=1, result_type='expand')
+
+    df['Position'] = df.apply(lambda x: ('|').join([x['REGION'],x['REF'],str(x['POS']),x['ALT']]), axis=1)
+
+    df = df.drop(['REGION','REF','POS','ALT'], axis=1)
+
+    df = df[['Position', 'N', 'Samples'] + [ col for col in df.columns if col not in ['Position', 'N', 'Samples']]]
+
+    return df
+
+
+
+################################ END COMPARE SNP 2.0
 
 def import_VCF4_to_pandas(vcf_file, sep='\t'):
     header_lines = 0
@@ -108,7 +227,7 @@ def import_tsv_pandas(vcf_file, sep='\t'):
         dataframe = pd.read_csv(vcf_file, sep=sep, header=0)
         dataframe['POS'] = dataframe['POS'].astype(int)
     else:
-        logger.info("This vcf file is empty or does not exixt")
+        logger.info("This vcf file is empty or does not exist")
         sys.exit(1)
            
     return dataframe
@@ -347,33 +466,54 @@ def matrix_to_cluster(pairwise_file, matrix_file, distance=0):
     final_cluster.to_csv(final_cluster_file, sep='\t', index=False)
 
 
-def revised_df(df, min_threshold_include=0.7, min_threshold_discard=0.7, remove_faulty=True, drop_samples=True, drop_positions=True):
+def revised_df(df, out_dir=False, min_freq_include=0.7, min_threshold_discard=0.7, remove_faulty=True, drop_samples=True, drop_positions=True):
     if remove_faulty == True:
 
-        uncovered_positions = df.iloc[:,3:].apply(lambda x: sum((x == '!'))/len(x), axis=1)
-        heterozygous_positions = df.iloc[:,3:].apply(lambda x: sum([i not in ['!',0,1, '0', '1'] for i in x.values])/len(x), axis=1)
+        uncovered_positions = df.iloc[:,3:].apply(lambda x:  sum([i in ['!','-'] for i in x.values])/len(x), axis=1)
+        heterozygous_positions = df.iloc[:,3:].apply(lambda x: sum([(i not in ['!','-',0,1, '0', '1']) and (float(i) < min_freq_include) for i in x.values])/len(x), axis=1)
         report_position = pd.DataFrame({'Position': df.Position, 'uncov_fract': uncovered_positions, 'htz_frac': heterozygous_positions, 'faulty_frac': uncovered_positions + heterozygous_positions})
         faulty_positions = report_position['Position'][report_position.faulty_frac >= min_threshold_discard].tolist()
 
 
-        uncovered_samples = df.iloc[:,3:].apply(lambda x: sum((x == '!'))/len(x), axis=0)
-        heterozygous_samples = df.iloc[:,3:].apply(lambda x: sum([i not in ['!',0,1, '0', '1'] for i in x.values])/len(x), axis=0)
+        uncovered_samples = df.iloc[:,3:].apply(lambda x: sum([i in ['!','-'] for i in x.values])/len(x), axis=0)
+        heterozygous_samples = df.iloc[:,3:].apply(lambda x: sum([(i not in ['!','-',0,1, '0', '1']) and (float(i) < min_freq_include) for i in x.values])/len(x), axis=0)
         report_samples = pd.DataFrame({'sample': df.iloc[:,3:].columns, 'uncov_fract': uncovered_samples, 'htz_frac': heterozygous_samples, 'faulty_frac': uncovered_samples + heterozygous_samples})
         faulty_samples = report_samples['sample'][report_samples.faulty_frac >= min_threshold_discard].tolist()
+
+        if out_dir != False:
+            out_dir = os.path.abspath(out_dir)
+            report_samples_file = os.path.join(out_dir, 'report_samples.tsv')
+            report_positions_file = os.path.join(out_dir, 'report_positions.tsv')
+            report_position.to_csv(report_positions_file, sep="\t", index=False)
+            report_samples.to_csv(report_samples_file, sep="\t", index=False)
 
         if drop_positions == True:
             df = df[~df.Position.isin(faulty_positions)]
         if drop_samples == True:
             df = df.drop(faulty_samples, axis=1)
 
-        logger.info('FAULTY POSITIONS:\n{}\n\nFAULTY SAMPLES:\n{}'.format(("\n").join(faulty_positions), ("\n").join(faulty_samples)))
+        print('FAULTY POSITIONS:\n{}\n\nFAULTY SAMPLES:\n{}'.format(("\n").join(faulty_positions), ("\n").join(faulty_samples)))
 
+    #Uncovered to 0
     df = df.replace('!', 0)
+
+    #Number of valid to remove o valid and replace lowfreq
+    df['valid'] = df.apply(lambda x: sum([i != '-' and float(i) > min_freq_include for i in x[3:]]), axis=1)
+    df = df[df.valid >= 1]
+    df = df.drop('valid', axis=1)
+    df = df.replace('-', 1)
+
     df.iloc[:,3:] = df.iloc[:,3:].astype(float)
-    f = lambda x: 1 if x >= min_threshold_include else 0 # IF HANDLE HETEROZYGOUS CHANGE THIS 0 for X or 0.5
+
+    #Replace Htz to 0
+    f = lambda x: 1 if x >= min_freq_include else 0 # IF HANDLE HETEROZYGOUS CHANGE THIS 0 for X or 0.5
     df.iloc[:,3:] = df.iloc[:,3:].applymap(f)
+
     df.N = df.apply(lambda x: sum(x[3:]), axis=1)
+
+    #Remove positions with 0 samples after htz
     df = df[df.N > 0]
+    
     return df
 
 def recheck_variant_mpileup_intermediate(reference_id, position, alt_snp, sample, previous_binary, bam_folder):
@@ -726,16 +866,17 @@ if __name__ == '__main__':
     
     if args.only_compare == False:
         input_dir = os.path.abspath(args.input_dir)
-        ddtb_add(input_dir, group_compare, sample_filter=args.sample_list)
-        
+
         if args.recalibrate == False:
+            ddtb_add(input_dir, group_compare, sample_filter=args.sample_list)
             ddtb_compare(compare_snp_matrix, distance=args.distance)
         else:
+            coverage_dir = os.path.abspath(args.recalibrate)
             compare_snp_matrix_recal = group_compare + ".revised.final.tsv"
             compare_snp_matrix_recal_intermediate = group_compare + ".revised_intermediate.tsv"
-            recalibrated_snp_matrix_intermediate = recalibrate_ddbb_vcf_intermediate(compare_snp_matrix, args.recalibrate)
+            recalibrated_snp_matrix_intermediate = ddbb_create_intermediate(input_dir, coverage_dir, min_freq_discard=0.1)
             recalibrated_snp_matrix_intermediate.to_csv(compare_snp_matrix_recal_intermediate, sep="\t", index=False)
-            recalibrated_revised_df = revised_df(recalibrated_snp_matrix_intermediate, min_threshold_include=0.7, min_threshold_discard=0.7, remove_faulty=True, drop_samples=True, drop_positions=True)
+            recalibrated_revised_df = revised_df(recalibrated_snp_matrix_intermediate, output_dir, min_freq_include=0.7, min_threshold_discard=0.7, remove_faulty=True, drop_samples=True, drop_positions=True)
             recalibrated_revised_df.to_csv(compare_snp_matrix_recal, sep="\t", index=False)
             ddtb_compare(compare_snp_matrix_recal, distance=args.distance)
     else:
