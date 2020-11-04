@@ -410,7 +410,7 @@ def remove_low_quality(output_dir, min_percentage_20x=90, min_hq_snp=1, type_rem
                         shutil.move(filename, destination_file)
 
     for root, _, files in os.walk(output_dir):
-        if 'Trimmed' in root or 'Quality' in root or 'Stats' in root:
+        if 'Trimmed' in root or 'Quality' in root:
             for name in files:
                 filename = os.path.join(root, name)
                 sample = re.search(r'^(.+?)[._-]', name).group(1)

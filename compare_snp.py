@@ -124,11 +124,13 @@ def ddbb_create_intermediate(variant_dir, coverage_dir, min_freq_discard=0.1):
     df = pd.DataFrame(columns=['REGION','POS', 'REF', 'ALT'])
     #Merge all raw
     for root, _, files in os.walk(variant_dir):
-        for name in files:
-            if name.endswith('.tsv'):
-                filename = os.path.join(root, name)
-                dfv = import_tsv_variants(filename)
-                df = df.merge(dfv, how='outer')
+        if root == variant_dir:
+            for name in files:
+                if name.endswith('.tsv'):
+                    logger.debug("Adding: " + name)
+                    filename = os.path.join(root, name)
+                    dfv = import_tsv_variants(filename)
+                    df = df.merge(dfv, how='outer')
     #Rounf frequencies
     df = df.round(2)
     #Remove <= 0.1 (parameter in function)
@@ -141,24 +143,31 @@ def ddbb_create_intermediate(variant_dir, coverage_dir, min_freq_discard=0.1):
 
     #Include poorly covered
     for root, _, files in os.walk(variant_dir):
-        for name in files:
-            if name.endswith('.tsv'):
-                filename = os.path.join(root, name)
-                sample = name.split('.')[0]
-                dfl = extract_lowfreq(filename)
-                df[sample].update(df[['REGION', 'POS', 'REF', 'ALT']].merge(dfl, on=['REGION', 'POS', 'REF', 'ALT'], how='left')[sample])
+        if root == variant_dir:
+            for name in files:
+                if name.endswith('.tsv'):
+                    filename = os.path.join(root, name)
+                    sample = name.split('.')[0]
+                    logger.debug("Adding lowfreqs: " + sample)
+                    dfl = extract_lowfreq(filename)
+                    df[sample].update(df[['REGION', 'POS', 'REF', 'ALT']].merge(dfl, on=['REGION', 'POS', 'REF', 'ALT'], how='left')[sample])
 
     #Include uncovered
+    samples_coverage = df.columns.tolist()[4:]
     for root, _, files in os.walk(coverage_dir):
         for name in files:
             if name.endswith('.cov'):
                 filename = os.path.join(root, name)
                 sample = name.split('.')[0]
                 if sample in df.columns[4:]:
+                    samples_coverage.remove(sample)
+                    logger.debug("Adding uncovered: " + sample)
                     dfc = extract_uncovered(filename)
                     #df.update(df[['REGION', 'POS']].merge(dfc, on=['REGION', 'POS'], how='left'))
                     df[sample].update(df[['REGION', 'POS']].merge(dfc, on=['REGION', 'POS'], how='left')[sample])
                     #df.combine_first(df[['REGION', 'POS']].merge(dfc, how='left'))
+    if len(samples_coverage) > 0:
+        logger.info("WARNING: " + (',').join(samples_coverage) + " coverage file not found" )
     #Asign 0 to rest (Absent)
     df = df.fillna(0)
 
