@@ -102,14 +102,11 @@ def main():
         annot_group.add_argument('-B', '--annot_bed', type=str, default=[], required=False, action='append', help='bed file to annotate')
         annot_group.add_argument('-V', '--annot_vcf', type=str, default=[], required=False, action='append', help='vcf file to annotate')
         
-        """
         annot_group = parser.add_argument_group('Annotation', 'parameters for variant annotation')
 
-        annot_group.add_argument('--mash_database', type=str, required=False, default="/home/pjsola/REFERENCES/mash/RefSeq88n.msh", help='MASH ncbi annotation containing all species database')
-        annot_group.add_argument('--snpeff_database', type=str, required=False, default=False, help='snpEFF annotation database')
-        """
-        
-    
+        annot_group.add_argument('--mash_database', type=str, required=False, default=False, help='MASH ncbi annotation containing all species database')
+        annot_group.add_argument('--snpeff_database', type=str, required=False, default='NC_045512.2', help='snpEFF annotation database')
+
 
         arguments = parser.parse_args()
 
@@ -342,7 +339,7 @@ def main():
                 logger.info(YELLOW + DIM + out_ivar_variant_file + " EXIST\nOmmiting Variant call for  sample " + sample + END_FORMATTING)
             else:
                 logger.info(GREEN + "Calling variants with ivar in sample " + sample + END_FORMATTING)
-                ivar_variants(reference, output_markdup_trimmed_file, out_variant_dir, sample, annotation, min_quality=20, min_frequency_threshold=0.05, min_depth=1)
+                ivar_variants(reference, output_markdup_trimmed_file, out_variant_dir, sample, annotation, min_quality=15, min_frequency_threshold=0.01, min_depth=1)
 
 
             #VARIANT FILTERING ##################################
@@ -420,33 +417,34 @@ def main():
     logger.info(GREEN + "Removing low quality samples" + END_FORMATTING)
     remove_low_quality(output, min_percentage_20x=args.coverage20, min_hq_snp=args.min_snp, type_remove='Uncovered')
 
-    #ANNOTATION WITH SNPEFF aND PANGOLIN ################
+    #ANNOTATION WITH SNPEFF, USER INOUT AND PANGOLIN ####
     #####################################################
     logger.info("\n\n" + BLUE + BOLD + "STARTING ANNOTATION IN GROUP: " + group_name + END_FORMATTING + "\n")
     check_create_dir(out_annot_dir)
     check_create_dir(out_annot_snpeff_dir)
     check_create_dir(out_annot_pangolin_dir)
     ####SNPEFF
-    for root, _, files in os.walk(out_filtered_ivar_dir):
-        if root == out_filtered_ivar_dir: 
-            for name in files:
-                if name.endswith('.tsv'):
-                    sample = name.split('.')[0]
-                    filename = os.path.join(root, name)
-                    out_annot_file = os.path.join(out_annot_snpeff_dir, sample + ".annot")
-                    if os.path.isfile(out_annot_file):
-                        logger.info(YELLOW + DIM + out_annot_file + " EXIST\nOmmiting snpEff Annotation for sample " + sample + END_FORMATTING)
-                    else:
-                        logger.info(GREEN + "Annotating sample with snpEff: " + sample + END_FORMATTING)
-                        output_vcf = os.path.join(out_annot_snpeff_dir, sample + '.vcf')
-                        annotate_snpeff(filename, output_vcf, out_annot_file)
+    if args.snpeff_database != False:
+        for root, _, files in os.walk(out_filtered_ivar_dir):
+            if root == out_filtered_ivar_dir: 
+                for name in files:
+                    if name.endswith('.tsv'):
+                        sample = name.split('.')[0]
+                        filename = os.path.join(root, name)
+                        out_annot_file = os.path.join(out_annot_snpeff_dir, sample + ".annot")
+                        if os.path.isfile(out_annot_file):
+                            logger.info(YELLOW + DIM + out_annot_file + " EXIST\nOmmiting snpEff Annotation for sample " + sample + END_FORMATTING)
+                        else:
+                            logger.info(GREEN + "Annotating sample with snpEff: " + sample + END_FORMATTING)
+                            output_vcf = os.path.join(out_annot_snpeff_dir, sample + '.vcf')
+                            annotate_snpeff(filename, output_vcf, out_annot_file, database=args.snpeff_database)
     ####USER DEFINED
     if not args.annot_bed and not args.annot_vcf:
         logger.info(YELLOW + BOLD + "Ommiting User Annotation, no BED or VCF files supplied" + END_FORMATTING)
     else:
         check_create_dir(out_annot_user_dir)
         for root, _, files in os.walk(out_filtered_ivar_dir):
-            if root == out_filtered_ivar_dir: 
+            if root == out_filtered_ivar_dir:
                 for name in files:
                     if name.endswith('.tsv'):
                         sample = name.split('.')[0]
@@ -483,9 +481,9 @@ def main():
     #ddtb_add(out_filtered_ivar_dir, full_path_compare)
     compare_snp_matrix_recal = full_path_compare + ".revised.final.tsv"
     compare_snp_matrix_recal_intermediate = full_path_compare + ".revised_intermediate.tsv"
-    recalibrated_snp_matrix_intermediate = ddbb_create_intermediate(out_variant_ivar_dir, out_stats_coverage_dir, min_freq_discard=0.1)
+    recalibrated_snp_matrix_intermediate = ddbb_create_intermediate(out_variant_ivar_dir, out_stats_coverage_dir, min_freq_discard=0.1, min_alt_dp=4)
     recalibrated_snp_matrix_intermediate.to_csv(compare_snp_matrix_recal_intermediate, sep="\t", index=False)
-    recalibrated_revised_df = revised_df(recalibrated_snp_matrix_intermediate, path_compare, min_freq_include=0.7, min_threshold_discard=0.7, remove_faulty=True, drop_samples=True, drop_positions=True)
+    recalibrated_revised_df = revised_df(recalibrated_snp_matrix_intermediate, path_compare, min_freq_include=0.7, min_threshold_discard_sample=0.1, min_threshold_discard_position=0.4, remove_faulty=True, drop_samples=True, drop_positions=True)
     recalibrated_revised_df.to_csv(compare_snp_matrix_recal, sep="\t", index=False)
     ddtb_compare(compare_snp_matrix_recal, distance=0)
 

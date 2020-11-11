@@ -90,7 +90,7 @@ def import_tsv_variants(tsv_file,  min_total_depth=4, min_alt_dp=4, only_snp=Tru
     else:
         return df
 
-def extract_lowfreq(tsv_file,  min_total_depth=4, min_alt_dp=4, only_snp=True):
+def extract_lowfreq(tsv_file,  min_total_depth=4, min_alt_dp=4, min_freq_include=0.7, only_snp=True):
     base_file = os.path.basename(tsv_file)
     input_file = os.path.abspath(tsv_file)
     sample = base_file.split(".")[0]
@@ -98,10 +98,11 @@ def extract_lowfreq(tsv_file,  min_total_depth=4, min_alt_dp=4, only_snp=True):
     df = pd.read_csv(input_file, sep='\t')
     df = df.drop_duplicates(subset=['POS', 'REF', 'ALT'], keep="first")
 
-    df = df[(df.ALT_DP <= min_alt_dp)]
+    df = df[(df.ALT_DP < min_alt_dp) &
+            (df.ALT_FREQ >= min_freq_include)]
 
     df = df[['REGION','POS', 'REF', 'ALT', 'ALT_FREQ']]
-    df['ALT_FREQ'] = '-'
+    df['ALT_FREQ'] = '?'
     df = df.rename(columns={'ALT_FREQ' : sample})
     if only_snp == True:
         df = df[~(df.ALT.str.startswith('+') | df.ALT.str.startswith('-'))]
@@ -120,7 +121,7 @@ def extract_uncovered(cov_file, min_total_depth=4):
     df = df.replace(0,'!')
     return df
 
-def ddbb_create_intermediate(variant_dir, coverage_dir, min_freq_discard=0.1):
+def ddbb_create_intermediate(variant_dir, coverage_dir, min_freq_discard=0.1, min_alt_dp=4):
     df = pd.DataFrame(columns=['REGION','POS', 'REF', 'ALT'])
     #Merge all raw
     for root, _, files in os.walk(variant_dir):
@@ -149,7 +150,7 @@ def ddbb_create_intermediate(variant_dir, coverage_dir, min_freq_discard=0.1):
                     filename = os.path.join(root, name)
                     sample = name.split('.')[0]
                     logger.debug("Adding lowfreqs: " + sample)
-                    dfl = extract_lowfreq(filename)
+                    dfl = extract_lowfreq(filename, min_total_depth=4, min_alt_dp=4, only_snp=True)
                     df[sample].update(df[['REGION', 'POS', 'REF', 'ALT']].merge(dfl, on=['REGION', 'POS', 'REF', 'ALT'], how='left')[sample])
 
     #Include uncovered
@@ -475,26 +476,33 @@ def matrix_to_cluster(pairwise_file, matrix_file, distance=0):
     final_cluster.to_csv(final_cluster_file, sep='\t', index=False)
 
 
-def revised_df(df, out_dir=False, min_freq_include=0.7, min_threshold_discard=0.7, remove_faulty=True, drop_samples=True, drop_positions=True):
+def revised_df(df, out_dir=False, min_freq_include=0.7, min_threshold_discard_sample=0.4, min_threshold_discard_position=0.4,remove_faulty=True, drop_samples=True, drop_positions=True):
     if remove_faulty == True:
 
-        uncovered_positions = df.iloc[:,3:].apply(lambda x:  sum([i in ['!','-'] for i in x.values])/len(x), axis=1)
-        heterozygous_positions = df.iloc[:,3:].apply(lambda x: sum([(i not in ['!','-',0,1, '0', '1']) and (float(i) < min_freq_include) for i in x.values])/len(x), axis=1)
+        uncovered_positions = df.iloc[:,3:].apply(lambda x:  sum([i in ['!','?'] for i in x.values])/len(x), axis=1)
+        heterozygous_positions = df.iloc[:,3:].apply(lambda x: sum([(i not in ['!','?',0,1, '0', '1']) and (float(i) < min_freq_include) for i in x.values])/len(x), axis=1)
         report_position = pd.DataFrame({'Position': df.Position, 'uncov_fract': uncovered_positions, 'htz_frac': heterozygous_positions, 'faulty_frac': uncovered_positions + heterozygous_positions})
-        faulty_positions = report_position['Position'][report_position.faulty_frac >= min_threshold_discard].tolist()
+        faulty_positions = report_position['Position'][report_position.faulty_frac >= min_threshold_discard_position].tolist()
 
 
-        uncovered_samples = df.iloc[:,3:].apply(lambda x: sum([i in ['!','-'] for i in x.values])/len(x), axis=0)
-        heterozygous_samples = df.iloc[:,3:].apply(lambda x: sum([(i not in ['!','-',0,1, '0', '1']) and (float(i) < min_freq_include) for i in x.values])/len(x), axis=0)
+        uncovered_samples = df.iloc[:,3:].apply(lambda x: sum([i in ['!','?'] for i in x.values])/len(x), axis=0)
+        heterozygous_samples = df.iloc[:,3:].apply(lambda x: sum([(i not in ['!','?',0,1, '0', '1']) and (float(i) < min_freq_include) for i in x.values])/len(x), axis=0)
         report_samples = pd.DataFrame({'sample': df.iloc[:,3:].columns, 'uncov_fract': uncovered_samples, 'htz_frac': heterozygous_samples, 'faulty_frac': uncovered_samples + heterozygous_samples})
-        faulty_samples = report_samples['sample'][report_samples.faulty_frac >= min_threshold_discard].tolist()
+        faulty_samples = report_samples['sample'][report_samples.faulty_frac >= min_threshold_discard_sample].tolist()
 
         if out_dir != False:
             out_dir = os.path.abspath(out_dir)
             report_samples_file = os.path.join(out_dir, 'report_samples.tsv')
+            report_faulty_samples_file = os.path.join(out_dir, 'faulty_samples.tsv')
             report_positions_file = os.path.join(out_dir, 'report_positions.tsv')
+            report_faulty_positions_file = os.path.join(out_dir, 'faulty_positions.tsv')
+            intermediate_cleaned_file = os.path.join(out_dir, 'intermediate.highfreq.tsv')
             report_position.to_csv(report_positions_file, sep="\t", index=False)
             report_samples.to_csv(report_samples_file, sep="\t", index=False)
+            with open(report_faulty_samples_file, 'w+') as f:
+                f.write(('\n').join(faulty_samples))
+            with open(report_faulty_positions_file, 'w+') as f2:
+                f2.write(('\n').join(faulty_positions))
 
         if drop_positions == True:
             df = df[~df.Position.isin(faulty_positions)]
@@ -504,13 +512,19 @@ def revised_df(df, out_dir=False, min_freq_include=0.7, min_threshold_discard=0.
         print('FAULTY POSITIONS:\n{}\n\nFAULTY SAMPLES:\n{}'.format(("\n").join(faulty_positions), ("\n").join(faulty_samples)))
 
     #Uncovered to 0
-    df = df.replace('!', 0)
+    
 
     #Number of valid to remove o valid and replace lowfreq
-    df['valid'] = df.apply(lambda x: sum([i != '-' and float(i) > min_freq_include for i in x[3:]]), axis=1)
+    df['valid'] = df.apply(lambda x: sum([i != '?' and i != '!' and float(i) > min_freq_include for i in x[3:]]), axis=1)
     df = df[df.valid >= 1]
     df = df.drop('valid', axis=1)
-    df = df.replace('-', 1)
+
+    if out_dir != False:
+        df.to_csv(intermediate_cleaned_file, sep="\t", index=False)
+
+    df = df.replace('!', 0)
+
+    df = df.replace('?', 1)
 
     df.iloc[:,3:] = df.iloc[:,3:].astype(float)
 
@@ -883,9 +897,9 @@ if __name__ == '__main__':
             coverage_dir = os.path.abspath(args.recalibrate)
             compare_snp_matrix_recal = group_compare + ".revised.final.tsv"
             compare_snp_matrix_recal_intermediate = group_compare + ".revised_intermediate.tsv"
-            recalibrated_snp_matrix_intermediate = ddbb_create_intermediate(input_dir, coverage_dir, min_freq_discard=0.1)
+            recalibrated_snp_matrix_intermediate = ddbb_create_intermediate(input_dir, coverage_dir, min_freq_discard=0.1, min_alt_dp=4)
             recalibrated_snp_matrix_intermediate.to_csv(compare_snp_matrix_recal_intermediate, sep="\t", index=False)
-            recalibrated_revised_df = revised_df(recalibrated_snp_matrix_intermediate, output_dir, min_freq_include=0.7, min_threshold_discard=0.7, remove_faulty=True, drop_samples=True, drop_positions=True)
+            recalibrated_revised_df = revised_df(recalibrated_snp_matrix_intermediate, output_dir, min_freq_include=0.7, min_threshold_discard_sample=0.4, min_threshold_discard_position=0.4,remove_faulty=True, drop_samples=True, drop_positions=True)
             recalibrated_revised_df.to_csv(compare_snp_matrix_recal, sep="\t", index=False)
             ddtb_compare(compare_snp_matrix_recal, distance=args.distance)
     else:

@@ -365,12 +365,15 @@ def remove_low_quality(output_dir, min_percentage_20x=90, min_hq_snp=1, type_rem
     output_dir = os.path.abspath(output_dir)
     uncovered_dir = os.path.join(output_dir, type_remove) #Uncovered or Mixed
     variant_dir = output_dir + '/Variants/ivar_filtered'
+    #variant_raw_dir = output_dir + '/Variants/ivar_raw'
     consensus_dir = os.path.join(output_dir , 'Consensus')
     uncovered_variant_dir = os.path.join(uncovered_dir , 'Variants')
     uncovered_consensus_dir = os.path.join(uncovered_dir , 'Consensus')
     uncovered_variant_filter = os.path.join(uncovered_variant_dir , 'ivar_filtered')
+    #uncovered_variant_raw = os.path.join(uncovered_variant_dir , 'ivar_raw')
     check_create_dir(uncovered_dir)
     check_create_dir(uncovered_variant_dir)
+    #check_create_dir(uncovered_variant_raw)
     check_create_dir(uncovered_variant_filter)
     check_create_dir(uncovered_consensus_dir)
 
@@ -420,14 +423,18 @@ def remove_low_quality(output_dir, min_percentage_20x=90, min_hq_snp=1, type_rem
     for sample in uncovered_samples:
         sample = str(sample)
         source_uncovered_var = os.path.join(variant_dir, sample + '.tsv')
+        #source_uncovered_var_raw = os.path.join(variant_raw_dir, sample + '.tsv')
         dest_uncovered_var = os.path.join(uncovered_variant_filter, sample + '.tsv')
+        #dest_uncovered_var_raw = os.path.join(uncovered_variant_raw, sample + '.tsv')
         source_uncovered_cons = os.path.join(consensus_dir, sample + '.fa')
         dest_uncovered_cons = os.path.join(uncovered_consensus_dir, sample + '.fa')
         source_uncovered_cons_qual = os.path.join(consensus_dir, sample + '.qual.txt')
         dest_uncovered_cons_qual = os.path.join(uncovered_consensus_dir, sample + '.qual.txt')
         shutil.move(source_uncovered_var, dest_uncovered_var)
+        #shutil.move(source_uncovered_var_raw, dest_uncovered_var_raw)
         shutil.move(source_uncovered_cons, dest_uncovered_cons)
         shutil.move(source_uncovered_cons_qual, dest_uncovered_cons_qual)
+        
     
     #return uncovered_samples
 
