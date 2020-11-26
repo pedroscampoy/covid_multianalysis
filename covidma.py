@@ -19,7 +19,7 @@ from misc import check_file_exists, extract_sample, check_create_dir, execute_su
 from preprocessing import fastqc_quality, fastp_trimming, format_html_image
 from pe_mapper import bwa_mapping, sam_to_index_bam
 from bam_variant import picard_dictionary, samtools_faidx, picard_markdup, ivar_trim, ivar_variants, ivar_consensus, \
-    replace_consensus_header, create_bamstat, create_coverage
+    replace_consensus_header, create_bamstat, create_coverage, create_consensus
 from vcf_process import filter_tsv_variants
 from annotation import annotate_snpeff, annotate_pangolin, user_annotation
 from compare_snp import ddtb_add, ddtb_compare, ddbb_create_intermediate, revised_df
@@ -196,6 +196,8 @@ def main():
     out_variant_ivar_dir = os.path.join(out_variant_dir, "ivar_raw") #subfolder
     out_filtered_ivar_dir = os.path.join(out_variant_dir, "ivar_filtered") #subfolder
     out_consensus_dir = os.path.join(output, "Consensus")
+    out_consensus_ivar_dir = os.path.join(out_consensus_dir, "ivar") #subfolder
+
 
     out_stats_dir = os.path.join(output, "Stats")
     out_stats_bamstats_dir = os.path.join(out_stats_dir, "Bamstats") #subfolder
@@ -356,14 +358,15 @@ def main():
             #CREATE CONSENSUS with ivar consensus##################
             #######################################################
             check_create_dir(out_consensus_dir)
+            check_create_dir(out_consensus_ivar_dir)
             out_ivar_consensus_name = sample + ".fa"
-            out_ivar_consensus_file = os.path.join(out_consensus_dir, out_ivar_consensus_name)
+            out_ivar_consensus_file = os.path.join(out_consensus_ivar_dir, out_ivar_consensus_name)
 
             if os.path.isfile(out_ivar_consensus_file):
                 logger.info(YELLOW + DIM + out_ivar_consensus_file + " EXIST\nOmmiting Consensus for  sample " + sample + END_FORMATTING)
             else:
                 logger.info(GREEN + "Creating consensus with ivar in sample " + sample + END_FORMATTING)
-                ivar_consensus(output_markdup_trimmed_file, out_consensus_dir, sample, min_quality=20, min_frequency_threshold=0.8, min_depth=20, uncovered_character='N')
+                ivar_consensus(output_markdup_trimmed_file, out_consensus_ivar_dir, sample, min_quality=20, min_frequency_threshold=0.8, min_depth=20, uncovered_character='N')
                 logger.info(GREEN + "Replacing consensus header in " + sample + END_FORMATTING)
                 replace_consensus_header(out_ivar_consensus_file)
 
@@ -453,8 +456,8 @@ def main():
                         user_annotation(filename, out_annot_file, vcf_files=args.annot_vcf, bed_files=args.annot_bed)
     
     ####PANGOLIN
-    for root, _, files in os.walk(out_consensus_dir):
-        if root == out_consensus_dir: 
+    for root, _, files in os.walk(out_consensus_ivar_dir):
+        if root == out_consensus_ivar_dir: 
             for name in files:
                 if name.endswith('.fa'):
                     sample = name.split('.')[0]
@@ -487,8 +490,13 @@ def main():
     recalibrated_revised_df.to_csv(compare_snp_matrix_recal, sep="\t", index=False)
     ddtb_compare(compare_snp_matrix_recal, distance=0)
 
-
     logger.info("\n\n" + MAGENTA + BOLD + "COMPARING FINISHED IN GROUP: " + group_name + END_FORMATTING + "\n")
+
+
+    #####################CONSENSUS WITH REFINED CALL######
+    ######################################################
+    logger.info(GREEN + "Creating refined consensus" + END_FORMATTING)
+    create_consensus(reference, compare_snp_matrix_recal, out_stats_coverage_dir, out_consensus_dir)
 
     """
  

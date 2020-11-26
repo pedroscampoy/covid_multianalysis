@@ -844,9 +844,9 @@ def ddtb_compare(final_database, distance=0):
 
     #Output files with group/cluster assigned to samples
     logger.info(CYAN + "Assigning clusters" + END_FORMATTING)
-    matrix_to_cluster(pairwise_file, snp_dist_file, distance=distance)
-
-    
+    matrix_to_cluster(pairwise_file, snp_dist_file, distance=0)
+    matrix_to_cluster(pairwise_file, snp_dist_file, distance=1)
+    matrix_to_cluster(pairwise_file, snp_dist_file, distance=2)
 
 
 if __name__ == '__main__':

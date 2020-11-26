@@ -309,7 +309,7 @@ def extract_n_consensus(output_dir,sample):
     sample = str(sample)
     if '.' in sample:
         sample = sample.split('.')[0]
-    consensus_folder = os.path.join(output_dir, 'Consensus')
+    consensus_folder = os.path.join(output_dir, 'Consensus/ivar')
     filename = os.path.join(consensus_folder, sample + ".fa")
 
     if os.path.exists(filename):
