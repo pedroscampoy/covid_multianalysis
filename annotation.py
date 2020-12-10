@@ -69,7 +69,7 @@ def import_annot_to_pandas(vcf_file, sep='\t'):
         next_line = f.readline().strip()
         while next_line.startswith("##"):
             header_lines = header_lines + 1
-            #print(next_line)
+            #logger.info(next_line)
             next_line = f.readline()
         
     #Use first line as header
@@ -145,7 +145,7 @@ def import_VCF_to_pandas(vcf_file):
         next_line = f.readline().strip()
         while next_line.startswith("##"):
             header_lines = header_lines + 1
-            #print(next_line)
+            #logger.info(next_line)
             next_line = f.readline()
 
     if first_line.startswith('##'):
@@ -161,13 +161,13 @@ def import_VCF_to_pandas(vcf_file):
             df = df.rename(columns={last_column: 'INFO'})
             return df
     else:
-        print("This vcf file is not properly formatted")
+        logger.info("This vcf file is not properly formatted")
         sys.exit(1)
 
 def annotate_vcfs(tsv_df, vcfs):
     df = pd.read_csv(tsv_df, sep="\t")
     for vcf in vcfs:
-        print("ANNOTATING VCF: ", vcf)
+        logger.info("ANNOTATING VCF: {}".format(vcf))
         header = (".").join(vcf.split("/")[-1].split(".")[0:-1])
         dfvcf = import_VCF_to_pandas(vcf)
         dfvcf = dfvcf[['POS', 'REF', 'ALT', 'INFO']]
@@ -223,7 +223,7 @@ def annotate_bed_s(tsv_df, bed_files):
     variable_list = [ x.split("/")[-1].split(".")[0] for x in bed_files] #extract file name and use it as header
     
     for variable_name, bed_file in zip(variable_list,bed_files):
-        print("ANNOTATING BED: ", bed_file)
+        logger.info("ANNOTATING BED: {}".format(bed_file))
         bed_annot_df = bed_to_df(bed_file)
         df[variable_name] = df['POS'].apply(lambda x: add_bed_info(bed_annot_df,x))
     return df
@@ -236,6 +236,27 @@ def user_annotation(tsv_file, output_file, vcf_files=[], bed_files=[]):
 
     df.to_csv(output_file, sep="\t", index=False)
 
+def checkAA(snpEffRow, dfAnnot):
+    df = dfAnnot
+    df['aaAnnot'] = df['aa'] + ":" + df['annot']
+    presence_list = [annot in snpEffRow for annot in dfAnnot.aa]
+    annotation_list = np.array(df.aaAnnot.tolist())
+    return (',').join(annotation_list[np.array(presence_list)])
+
+def annotate_aas(annot_file, aas):
+    df = pd.read_csv(annot_file, sep="\t")
+    for aa in aas:
+        logger.info("ANNOTATING AA: {}".format(aa))
+        header = (".").join(aa.split("/")[-1].split(".")[0:-1])
+        dfaa = pd.read_csv(aa, sep="\t", names=['aa', 'annot'])
+        df[header] = df.apply(lambda x: checkAA(x.INFO, dfaa), axis=1)
+
+    return df
+
+def user_annotation_aa(annot_file, output_file, aa_files=[]):
+    df = annotate_aas(annot_file, aa_files)
+    df.to_csv(output_file, sep="\t", index=False)
+
 
 if __name__ == '__main__':
-    print("#################### ANNOTATION #########################")
+    logger.info("#################### ANNOTATION #########################")

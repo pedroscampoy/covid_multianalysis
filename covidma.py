@@ -21,7 +21,7 @@ from pe_mapper import bwa_mapping, sam_to_index_bam
 from bam_variant import picard_dictionary, samtools_faidx, picard_markdup, ivar_trim, ivar_variants, ivar_consensus, \
     replace_consensus_header, create_bamstat, create_coverage, create_consensus
 from vcf_process import filter_tsv_variants
-from annotation import annotate_snpeff, annotate_pangolin, user_annotation
+from annotation import annotate_snpeff, annotate_pangolin, user_annotation, user_annotation_aa
 from compare_snp import ddtb_add, ddtb_compare, ddbb_create_intermediate, revised_df
 
 """
@@ -101,6 +101,7 @@ def main():
 
         annot_group.add_argument('-B', '--annot_bed', type=str, default=[], required=False, action='append', help='bed file to annotate')
         annot_group.add_argument('-V', '--annot_vcf', type=str, default=[], required=False, action='append', help='vcf file to annotate')
+        annot_group.add_argument('-A', '--annot_aa', type=str, default=[], required=False, action='append', help='aminoacid file to annotate')
         
         annot_group = parser.add_argument_group('Annotation', 'parameters for variant annotation')
 
@@ -208,6 +209,7 @@ def main():
     out_annot_snpeff_dir = os.path.join(out_annot_dir, "snpeff") #subfolder
     out_annot_pangolin_dir = os.path.join(out_annot_dir, "pangolin") #subfolder
     out_annot_user_dir = os.path.join(out_annot_dir, "user") #subfolder
+    out_annot_user_aa_dir = os.path.join(out_annot_dir, "user_aa") #subfolder
 
 
     for r1_file, r2_file in zip(r1, r2):
@@ -454,6 +456,20 @@ def main():
                         filename = os.path.join(root, name)
                         out_annot_file = os.path.join(out_annot_user_dir, sample + ".tsv")
                         user_annotation(filename, out_annot_file, vcf_files=args.annot_vcf, bed_files=args.annot_bed)
+
+    ####USER AA DEFINED
+    if not args.annot_aa:
+        logger.info(YELLOW + BOLD + "Ommiting User aa Annotation, no AA files supplied" + END_FORMATTING)
+    else:
+        check_create_dir(out_annot_user_aa_dir)
+        for root, _, files in os.walk(out_annot_snpeff_dir):
+            if root == out_annot_snpeff_dir:
+                for name in files:
+                    if name.endswith('.annot'):
+                        sample = name.split('.')[0]
+                        filename = os.path.join(root, name)
+                        out_annot_aa_file = os.path.join(out_annot_user_aa_dir, sample + ".tsv")
+                        user_annotation_aa(filename, out_annot_aa_file, aa_files=args.annot_aa)
     
     ####PANGOLIN
     for root, _, files in os.walk(out_consensus_ivar_dir):
@@ -593,7 +609,7 @@ def main():
 
     
     """
-    logger.info("\n\n" + MAGENTA + BOLD + "#####END OF PIPELINE SNPTB#####" + END_FORMATTING + "\n")
+    logger.info("\n\n" + MAGENTA + BOLD + "#####END OF PIPELINE COVID MULTI ANALYSIS#####" + END_FORMATTING + "\n")
 
 if __name__ == '__main__':
     try:

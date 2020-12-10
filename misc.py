@@ -218,8 +218,8 @@ def calculate_cov_stats(file_cov):
     unmmaped_pos = len(df.POS[df.COV == 0].tolist())
     pos_0_10 = len(df.POS[(df.COV > 0) & (df.COV <= 10)].tolist())
     pos_10_20 = len(df.POS[(df.COV > 10) & (df.COV <= 20)].tolist())
-    pos_high20 = len(df.POS[(df.COV > 20)].tolist())
-    pos_high50 = len(df.POS[(df.COV > 50)].tolist())
+    pos_high20 = len(df.POS[(df.COV >= 30)].tolist())
+    pos_high50 = len(df.POS[(df.COV >= 50)].tolist())
     pos_high100 = len(df.POS[(df.COV >= 100)].tolist())
     pos_high500 = len(df.POS[(df.COV >= 500)].tolist())
     pos_high1000 = len(df.POS[(df.COV >= 1000)].tolist())
@@ -244,7 +244,7 @@ def obtain_group_cov_stats(directory, group_name):
     output_file = os.path.join(directory_path, output_group_name)
 
     with open(output_file, "w+") as outfile:
-            outfile.write("#SAMPLE" + "\t" + "MEAN_COV" + "\t" + "UNMMAPED_PROP" + "\t" + "COV1-10X" + "\t" + "COV10-20X" + "\t" + "COV>20X" + "\t" + "COV>50X" + "\t" + "COV>100X" + "\t" + "COV>500X" + "\t" + "COV>1000X" + "\n")
+            outfile.write("#SAMPLE" + "\t" + "MEAN_COV" + "\t" + "UNMMAPED_PROP" + "\t" + "COV1-10X" + "\t" + "COV10-20X" + "\t" + "COV>30X" + "\t" + "COV>50X" + "\t" + "COV>100X" + "\t" + "COV>500X" + "\t" + "COV>1000X" + "\n")
             for root, _, files in os.walk(directory_path):
                 for name in files:
                     filename = os.path.join(root, name)
@@ -388,7 +388,7 @@ def remove_low_quality(output_dir, min_percentage_20x=90, min_hq_snp=1, type_rem
                 if name.endswith('overal.stats.tab'):
                     coverage_stat_file = filename
                     stats_df = pd.read_csv(coverage_stat_file, sep="\t")
-                    uncovered_samples = stats_df['#SAMPLE'][(stats_df['COV>20X'] < min_percentage_20x) |
+                    uncovered_samples = stats_df['#SAMPLE'][(stats_df['COV>30X'] < min_percentage_20x) |
                                                             (stats_df['HQ_SNP'] < min_hq_snp)].tolist()
                     #create a df with only covered to replace the original
                     covered_df = stats_df[~stats_df['#SAMPLE'].isin(uncovered_samples)]
