@@ -43,6 +43,7 @@ https://repo.anaconda.com/pkgs/main/linux-64/zlib-1.2.11-h7b6447c_3.conda
 https://conda.anaconda.org/bioconda/linux-64/bwa-0.7.17-hed695b0_7.tar.bz2
 https://conda.anaconda.org/bioconda/linux-64/fastp-0.20.1-h8b12597_0.tar.bz2
 https://repo.anaconda.com/pkgs/main/linux-64/glib-2.66.1-h92f7085_0.conda
+https://conda.anaconda.org/bioconda/linux-64/iqtree-1.6.12-he513fc3_1.tar.bz2
 https://conda.anaconda.org/bioconda/linux-64/k8-0.2.5-he513fc3_0.tar.bz2
 https://repo.anaconda.com/pkgs/main/linux-64/libedit-3.1.20191231-h14c3975_1.conda
 https://repo.anaconda.com/pkgs/main/linux-64/libpng-1.6.37-hbc83047_0.conda
@@ -117,6 +118,7 @@ https://repo.anaconda.com/pkgs/main/noarch/configargparse-1.2.3-py_0.conda
 https://repo.anaconda.com/pkgs/main/linux-64/curl-7.71.1-hbc83047_1.conda
 https://repo.anaconda.com/pkgs/main/linux-64/datrie-0.8.2-py36h7b6447c_0.conda
 https://repo.anaconda.com/pkgs/main/noarch/decorator-4.4.2-py_0.conda
+https://conda.anaconda.org/bioconda/noarch/dendropy-4.5.1-pyh3252c3a_0.tar.bz2
 https://repo.anaconda.com/pkgs/main/linux-64/docutils-0.16-py36_1.conda
 https://conda.anaconda.org/bioconda/noarch/fastqc-0.11.9-0.tar.bz2
 https://conda.anaconda.org/bioconda/linux-64/htslib-1.10.2-hd3b49d5_1.tar.bz2
@@ -133,6 +135,7 @@ https://repo.anaconda.com/pkgs/main/noarch/pycparser-2.20-py_2.conda
 https://repo.anaconda.com/pkgs/main/linux-64/pyrsistent-0.17.3-py36h7b6447c_0.conda
 https://repo.anaconda.com/pkgs/main/linux-64/pysocks-1.7.1-py36h06a4308_0.conda
 https://conda.anaconda.org/conda-forge/linux-64/python_abi-3.6-1_cp36m.tar.bz2
+https://repo.anaconda.com/pkgs/main/noarch/pytz-2020.4-pyhd3eb1b0_0.conda
 https://repo.anaconda.com/pkgs/main/linux-64/pyyaml-5.3.1-py36h7b6447c_1.conda
 https://conda.anaconda.org/conda-forge/noarch/ratelimiter-1.2.0-py_1002.tar.bz2
 https://repo.anaconda.com/pkgs/main/linux-64/six-1.15.0-py36h06a4308_0.conda
@@ -152,6 +155,7 @@ https://repo.anaconda.com/pkgs/main/linux-64/mkl-service-2.3.0-py36he8ac12f_0.co
 https://conda.anaconda.org/bioconda/linux-64/perl-file-listing-6.04-pl526_1.tar.bz2
 https://conda.anaconda.org/bioconda/linux-64/perl-uri-1.76-pl526_0.tar.bz2
 https://conda.anaconda.org/bioconda/linux-64/perl-xml-sax-expat-0.51-pl526_3.tar.bz2
+https://repo.anaconda.com/pkgs/main/noarch/python-dateutil-2.8.1-py_0.conda
 https://conda.anaconda.org/bioconda/linux-64/samtools-1.10-h2e538c0_3.tar.bz2
 https://repo.anaconda.com/pkgs/main/linux-64/setuptools-51.0.0-py36h06a4308_2.conda
 https://repo.anaconda.com/pkgs/main/linux-64/traitlets-4.3.3-py36_0.conda
@@ -182,10 +186,13 @@ https://conda.anaconda.org/bioconda/noarch/perl-libwww-perl-6.39-pl526_0.tar.bz2
 https://conda.anaconda.org/bioconda/noarch/picard-2.23.4-0.tar.bz2
 https://repo.anaconda.com/pkgs/main/noarch/urllib3-1.25.11-py_0.conda
 https://repo.anaconda.com/pkgs/main/linux-64/biopython-1.78-py36h7b6447c_0.conda
+https://repo.anaconda.com/pkgs/main/linux-64/pandas-1.1.3-py36he6710b0_0.conda
 https://conda.anaconda.org/bioconda/linux-64/perl-lwp-protocol-https-6.07-pl526_4.tar.bz2
+https://conda.anaconda.org/conda-forge/noarch/pytools-2020.1-py_0.tar.bz2
 https://repo.anaconda.com/pkgs/main/noarch/requests-2.25.0-pyhd3eb1b0_0.conda
 https://repo.anaconda.com/pkgs/main/linux-64/scipy-1.5.2-py36h0b6359f_0.conda
 https://conda.anaconda.org/bioconda/linux-64/entrez-direct-13.9-pl526h375a9b1_0.tar.bz2
 https://conda.anaconda.org/bioconda/noarch/snakemake-minimal-5.13.0-py_0.tar.bz2
 https://conda.anaconda.org/bioconda/linux-64/blast-2.10.1-pl526he19e7b1_3.tar.bz2
+https://conda.anaconda.org/bioconda/noarch/pangolin-1.1.14-py_0.tar.bz2
 https://conda.anaconda.org/bioconda/linux-64/kraken2-2.1.0-pl526hc9558a2_0.tar.bz2
