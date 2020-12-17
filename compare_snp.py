@@ -125,17 +125,17 @@ def ddbb_create_intermediate(variant_dir, coverage_dir, min_freq_discard=0.1, mi
     df = pd.DataFrame(columns=['REGION','POS', 'REF', 'ALT'])
     #Merge all raw
     for root, _, files in os.walk(variant_dir):
-        if root == variant_dir:
-            for name in files:
+        if root == variant_dir: 
+            for name in files: 
                 if name.endswith('.tsv'):
-                    logger.debug("Adding: " + name)
-                    filename = os.path.join(root, name)
-                    dfv = import_tsv_variants(filename)
+                    logger.debug("Adding: " + name) 
+                    filename = os.path.join(root, name) 
+                    dfv = import_tsv_variants(filename) 
                     df = df.merge(dfv, how='outer')
-    #Rounf frequencies
+    #Round frequencies
     df = df.round(2)
     #Remove <= 0.1 (parameter in function)
-    handle_lowfreq = lambda x: None if x <= min_freq_discard else x # IF HANDLE HETEROZYGOUS CHANGE THIS 0 for X or 0.5
+    handle_lowfreq = lambda x: None if x <= min_freq_discard else x
     df.iloc[:,4:] = df.iloc[:,4:].applymap(handle_lowfreq)
     #Drop all NaN rows
     df['AllNaN'] = df.apply(lambda x: x[4:].isnull().values.all(), axis=1)

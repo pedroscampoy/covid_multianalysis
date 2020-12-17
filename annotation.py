@@ -94,19 +94,28 @@ def import_annot_to_pandas(vcf_file, sep='\t'):
 
     #Apply function to split and recover the first 15 fields = only first anotations, the most likely
 
-    df['TMP_ANN_16'] = df['INFO'].apply(lambda x: ('|').join(x.split('|')[0:15]))
-    df[ann_headers] = df['TMP_ANN_16'].str.split('|', expand=True)
-    df['HGVS.c'] = df['HGVS.c'].str.split(".").str[-1]
-    df['HGVS.p'] = df['HGVS.p'].str.split(".").str[-1]
-    df[anlelle_headers] = df['Allele'].str.split(';', expand=True)
+    df[anlelle_headers] = df['INFO'].str.split(';', expand=True)
     
     for head in anlelle_headers:
         df[head] = df[head].str.split("=").str[-1]
 
-    del df['TMP_ANN_16']
+    df['TMP_ANN_16'] = df['INFO'].apply(lambda x: ('|').join(x.split('|')[0:15]))
 
-    #Send INFO column to last position
-    df = df[ [ col for col in df.columns if col != 'INFO' ] + ['INFO'] ]
+    df.INFO = df.INFO.str.split("ANN=").str[-1]
+
+    df = df.join(df.pop('INFO')
+                   .str.strip(',')
+                   .str.split(',', expand=True)
+                   .stack()
+                   .reset_index(level=1, drop=True)
+                   .rename('INFO')).reset_index(drop=True)
+
+    df['TMP_ANN_16'] = df['INFO'].apply(lambda x: ('|').join(x.split('|')[0:15]))
+    df[ann_headers] = df['TMP_ANN_16'].str.split('|', expand=True)
+    df['HGVS.c'] = df['HGVS.c'].str.split(".").str[-1]
+    df['HGVS.p'] = df['HGVS.p'].str.split(".").str[-1].replace('', '-')
+
+    df.drop(["INFO", "TMP_ANN_16"], inplace = True, axis = 1)
 
     return df
 
@@ -249,7 +258,7 @@ def annotate_aas(annot_file, aas):
         logger.info("ANNOTATING AA: {}".format(aa))
         header = (".").join(aa.split("/")[-1].split(".")[0:-1])
         dfaa = pd.read_csv(aa, sep="\t", names=['aa', 'annot'])
-        df[header] = df.apply(lambda x: checkAA(x.INFO, dfaa), axis=1)
+        df[header] = df.apply(lambda x: checkAA(x['HGVS.p'], dfaa), axis=1)
 
     return df
 
