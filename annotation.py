@@ -92,9 +92,10 @@ def import_annot_to_pandas(vcf_file, sep='\t'):
                     'ERRORS / WARNINGS / INFO']
     anlelle_headers = ['Codon_change', 'AA_change', 'DP', 'Allele']
 
+
     #Apply function to split and recover the first 15 fields = only first anotations, the most likely
 
-    df[anlelle_headers] = df['INFO'].str.split(';', expand=True)
+    df[anlelle_headers] = df.apply(lambda x: x.INFO.split(';')[0:4], axis=1, result_type="expand")
     
     for head in anlelle_headers:
         df[head] = df[head].str.split("=").str[-1]
