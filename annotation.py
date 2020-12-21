@@ -228,15 +228,22 @@ def add_bed_info(bed_df, position):
         return None
 
 def annotate_bed_s(tsv_df, bed_files):
-    df = pd.read_csv(tsv_df, sep="\t")
+    with open(tsv_df, 'r') as f:
+        content = f.read().strip()
+        if content == 'No annotation found':
+            return pd.DataFrame(columns=['POS', 'REF', 'ALT', 'INFO'])
 
-    variable_list = [ x.split("/")[-1].split(".")[0] for x in bed_files] #extract file name and use it as header
+        else:
+            df = pd.read_csv(tsv_df, sep="\t")
+
+            variable_list = [ x.split("/")[-1].split(".")[0] for x in bed_files] #extract file name and use it as header
+            
+            for variable_name, bed_file in zip(variable_list,bed_files):
+                logger.info("ANNOTATING BED: {}".format(bed_file))
+                bed_annot_df = bed_to_df(bed_file)
+                df[variable_name] = df['POS'].apply(lambda x: add_bed_info(bed_annot_df,x))
+            return df
     
-    for variable_name, bed_file in zip(variable_list,bed_files):
-        logger.info("ANNOTATING BED: {}".format(bed_file))
-        bed_annot_df = bed_to_df(bed_file)
-        df[variable_name] = df['POS'].apply(lambda x: add_bed_info(bed_annot_df,x))
-    return df
 
 def user_annotation(tsv_file, output_file, vcf_files=[], bed_files=[]):
     bed_df = annotate_bed_s(tsv_file, bed_files)
@@ -264,8 +271,15 @@ def annotate_aas(annot_file, aas):
     return df
 
 def user_annotation_aa(annot_file, output_file, aa_files=[]):
-    df = annotate_aas(annot_file, aa_files)
-    df.to_csv(output_file, sep="\t", index=False)
+    with open(annot_file, 'r') as f:
+        content = f.read().strip()
+        if content == 'No annotation found':
+            logger.debug("{} file has NO Annotation".format(annot_file))
+            with open(output_file, 'w+') as fout:
+                fout.write('No annotation found')
+        else:
+            df = annotate_aas(annot_file, aa_files)
+            df.to_csv(output_file, sep="\t", index=False)
 
 
 if __name__ == '__main__':

@@ -430,8 +430,8 @@ def main():
     check_create_dir(out_annot_pangolin_dir)
     ####SNPEFF
     if args.snpeff_database != False:
-        for root, _, files in os.walk(out_filtered_ivar_dir):
-            if root == out_filtered_ivar_dir: 
+        for root, _, files in os.walk(out_variant_ivar_dir):
+            if root == out_variant_ivar_dir: 
                 for name in files:
                     if name.endswith('.tsv'):
                         sample = name.split('.')[0]
@@ -448,11 +448,12 @@ def main():
         logger.info(YELLOW + BOLD + "Ommiting User Annotation, no BED or VCF files supplied" + END_FORMATTING)
     else:
         check_create_dir(out_annot_user_dir)
-        for root, _, files in os.walk(out_filtered_ivar_dir):
-            if root == out_filtered_ivar_dir:
+        for root, _, files in os.walk(out_variant_ivar_dir):
+            if root == out_variant_ivar_dir:
                 for name in files:
                     if name.endswith('.tsv'):
                         sample = name.split('.')[0]
+                        logger.info('User bed/vcf annotation in sample {}'.format(sample))
                         filename = os.path.join(root, name)
                         out_annot_file = os.path.join(out_annot_user_dir, sample + ".tsv")
                         user_annotation(filename, out_annot_file, vcf_files=args.annot_vcf, bed_files=args.annot_bed)
@@ -467,6 +468,7 @@ def main():
                 for name in files:
                     if name.endswith('.annot'):
                         sample = name.split('.')[0]
+                        logger.info('User aa annotation in sample {}'.format(sample))
                         filename = os.path.join(root, name)
                         out_annot_aa_file = os.path.join(out_annot_user_aa_dir, sample + ".tsv")
                         user_annotation_aa(filename, out_annot_aa_file, aa_files=args.annot_aa)
