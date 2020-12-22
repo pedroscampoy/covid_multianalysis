@@ -279,6 +279,8 @@ def user_annotation_aa(annot_file, output_file, aa_files=[]):
                 fout.write('No annotation found')
         else:
             df = annotate_aas(annot_file, aa_files)
+            # Filtra la salida de SNPEff con las anotaciones aa
+            # df.drop_duplicates(subset=['HGVS.p'], keep='first', inplace=True)
             df.to_csv(output_file, sep="\t", index=False)
 
 
