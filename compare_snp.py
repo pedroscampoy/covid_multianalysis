@@ -32,7 +32,7 @@ DIM = '\033[2m'
 
 def get_arguments():
 
-    parser = argparse.ArgumentParser(prog = 'snptb.py', description= 'Pipeline to call variants (SNVs) with any non model organism. Specialised in Mycobacterium Tuberculosis')
+    parser = argparse.ArgumentParser(prog = 'compare_snp.py', description= 'Pipeline to call variants (SNVs) with any non model organism. Specialised in SARS-COV2')
     
     parser.add_argument('-i', '--input', dest="input_dir", metavar="input_directory", type=str, required=False, help='REQUIRED.Input directory containing all vcf files')
     parser.add_argument('-s', '--sample_list', default=False, required=False, help='File with sample names to analyse instead of all samples')
@@ -40,6 +40,7 @@ def get_arguments():
     parser.add_argument('-c', '--only-compare', dest="only_compare", required=False, default=False, help='Add already calculated snp binary matrix')
     parser.add_argument('-r', '--recalibrate', required= False, type=str, default=False, help='Coverage folder')
     parser.add_argument('-R', '--remove_bed', type=str, default=False, required=False, help='BED file with positions to remove')
+    parser.add_argument('-S', '--only_snp', required=False, action='store_false', help='Use INDELS while comparing')
 
     parser.add_argument('-o', '--output', type=str, required=True, help='Name of all the output files, might include path')
 
@@ -121,7 +122,7 @@ def extract_uncovered(cov_file, min_total_depth=4):
     df = df.replace(0,'!')
     return df
 
-def ddbb_create_intermediate(variant_dir, coverage_dir, min_freq_discard=0.1, min_alt_dp=4):
+def ddbb_create_intermediate(variant_dir, coverage_dir, min_freq_discard=0.1, min_alt_dp=4, only_snp=True):
     df = pd.DataFrame(columns=['REGION','POS', 'REF', 'ALT'])
     #Merge all raw
     for root, _, files in os.walk(variant_dir):
@@ -130,7 +131,7 @@ def ddbb_create_intermediate(variant_dir, coverage_dir, min_freq_discard=0.1, mi
                 if name.endswith('.tsv'):
                     logger.debug("Adding: " + name) 
                     filename = os.path.join(root, name) 
-                    dfv = import_tsv_variants(filename) 
+                    dfv = import_tsv_variants(filename, only_snp=only_snp) 
                     df = df.merge(dfv, how='outer')
     #Round frequencies
     df = df.round(2)
@@ -150,7 +151,7 @@ def ddbb_create_intermediate(variant_dir, coverage_dir, min_freq_discard=0.1, mi
                     filename = os.path.join(root, name)
                     sample = name.split('.')[0]
                     logger.debug("Adding lowfreqs: " + sample)
-                    dfl = extract_lowfreq(filename, min_total_depth=4, min_alt_dp=4, only_snp=True)
+                    dfl = extract_lowfreq(filename, min_total_depth=4, min_alt_dp=4, only_snp=only_snp)
                     df[sample].update(df[['REGION', 'POS', 'REF', 'ALT']].merge(dfl, on=['REGION', 'POS', 'REF', 'ALT'], how='left')[sample])
 
     #Include uncovered
@@ -936,7 +937,7 @@ if __name__ == '__main__':
             coverage_dir = os.path.abspath(args.recalibrate)
             compare_snp_matrix_recal = group_compare + ".revised.final.tsv"
             compare_snp_matrix_recal_intermediate = group_compare + ".revised_intermediate.tsv"
-            recalibrated_snp_matrix_intermediate = ddbb_create_intermediate(input_dir, coverage_dir, min_freq_discard=0.1, min_alt_dp=4)
+            recalibrated_snp_matrix_intermediate = ddbb_create_intermediate(input_dir, coverage_dir, min_freq_discard=0.1, min_alt_dp=4, only_snp=args.only_snp)
             if args.remove_bed:
                 recalibrated_snp_matrix_intermediate = remove_bed_positions(recalibrated_snp_matrix_intermediate, args.remove_bed)
             recalibrated_snp_matrix_intermediate.to_csv(compare_snp_matrix_recal_intermediate, sep="\t", index=False)
