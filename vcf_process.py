@@ -15,7 +15,7 @@ list_to_bed, count_lines
 
 logger = logging.getLogger()
 
-def filter_tsv_variants(tsv_file, output_filtered, min_frequency=0.8, min_total_depth=20, min_alt_dp=4, is_pass=True, only_snp=True):
+def filter_tsv_variants(tsv_file, output_filtered, min_frequency=0.8, min_total_depth=20, min_alt_dp=4, is_pass=True, only_snp=False):
     input_file_name = os.path.basename(tsv_file)
     input_file = os.path.abspath(tsv_file)
     output_file = os.path.join(output_filtered, input_file_name)

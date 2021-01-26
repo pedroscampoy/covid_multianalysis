@@ -80,7 +80,7 @@ def main():
         input_group.add_argument('-a', '--annotation', metavar="annotation", type=str, required=True, help='REQUIRED. gff3 file to annotate variants')
         input_group.add_argument('-s', '--sample', metavar="sample", type=str, required=False, help='Sample to identify further files')
         input_group.add_argument('-S', '--sample_list', type=str, required=False, help='Sample names to analyse only in the file supplied')
-        input_group.add_argument('-p', '--primers', type=str, default='/home/laura/COVID/primers/nCoV-2019.bed', required=False, help='Bed file including primers to trim')
+        input_group.add_argument('-p', '--primers', type=str, default='/home/laura/DATABASES/Anotacion/COVID/primers/nCoV-2019.bed', required=False, help='Bed file including primers to trim')
         
         quality_group = parser.add_argument_group('Quality parameters', 'parameters for diferent triming conditions')
 
@@ -102,7 +102,8 @@ def main():
         annot_group.add_argument('-B', '--annot_bed', type=str, default=[], required=False, action='append', help='bed file to annotate')
         annot_group.add_argument('-V', '--annot_vcf', type=str, default=[], required=False, action='append', help='vcf file to annotate')
         annot_group.add_argument('-A', '--annot_aa', type=str, default=[], required=False, action='append', help='aminoacid file to annotate')
-        
+        annot_group.add_argument('-R', '--remove_bed', type=str, default=False, required=False, help='BED file with positions to remove')
+
         annot_group = parser.add_argument_group('Annotation', 'parameters for variant annotation')
 
         annot_group.add_argument('--mash_database', type=str, required=False, default=False, help='MASH ncbi annotation containing all species database')
@@ -355,7 +356,7 @@ def main():
                 logger.info(YELLOW + DIM + out_ivar_filtered_file + " EXIST\nOmmiting Variant filtering for  sample " + sample + END_FORMATTING)
             else:
                 logger.info(GREEN + "Filtering variants in sample " + sample + END_FORMATTING)
-                filter_tsv_variants(out_ivar_variant_file, out_filtered_ivar_dir, min_frequency=0.7, min_total_depth=10, min_alt_dp=4, is_pass=True, only_snp=True)
+                filter_tsv_variants(out_ivar_variant_file, out_filtered_ivar_dir, min_frequency=0.7, min_total_depth=10, min_alt_dp=4, is_pass=True, only_snp=False)
             
             #CREATE CONSENSUS with ivar consensus##################
             #######################################################
@@ -430,8 +431,8 @@ def main():
     check_create_dir(out_annot_pangolin_dir)
     ####SNPEFF
     if args.snpeff_database != False:
-        for root, _, files in os.walk(out_variant_ivar_dir):
-            if root == out_variant_ivar_dir: 
+        for root, _, files in os.walk(out_filtered_ivar_dir):
+            if root == out_filtered_ivar_dir: 
                 for name in files:
                     if name.endswith('.tsv'):
                         sample = name.split('.')[0]
@@ -448,8 +449,8 @@ def main():
         logger.info(YELLOW + BOLD + "Ommiting User Annotation, no BED or VCF files supplied" + END_FORMATTING)
     else:
         check_create_dir(out_annot_user_dir)
-        for root, _, files in os.walk(out_variant_ivar_dir):
-            if root == out_variant_ivar_dir:
+        for root, _, files in os.walk(out_filtered_ivar_dir):
+            if root == out_filtered_ivar_dir:
                 for name in files:
                     if name.endswith('.tsv'):
                         sample = name.split('.')[0]
