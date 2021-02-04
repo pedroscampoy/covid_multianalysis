@@ -132,7 +132,7 @@ def annotate_snpeff(input_tsv_file, output_vcf_file, output_annot_file, database
 
 
 def annotate_pangolin(input_file, output_folder, output_filename, threads=8, max_ambig=0.6):
-    cmd = ["pangolin", input_file, "-d", "/home/laura/anaconda3/envs/pangolin/lib/python3.7/site-packages/pangoLEARN/data/", "--outdir", output_folder, "--outfile", output_filename, "--threads", str(threads), "--max-ambig", str(max_ambig)]
+    cmd = ["pangolin", input_file, "--outdir", output_folder, "--outfile", output_filename, "--threads", str(threads), "--max-ambig", str(max_ambig)]
     execute_subprocess(cmd)
 
 def get_reverse(nucleotyde):

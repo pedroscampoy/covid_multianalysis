@@ -22,7 +22,7 @@ from bam_variant import picard_dictionary, samtools_faidx, picard_markdup, ivar_
     replace_consensus_header, create_bamstat, create_coverage, create_consensus
 from vcf_process import filter_tsv_variants
 from annotation import annotate_snpeff, annotate_pangolin, user_annotation, user_annotation_aa
-from compare_snp import ddtb_add, ddtb_compare, ddbb_create_intermediate, revised_df
+from compare_snp import ddtb_add, ddtb_compare, ddbb_create_intermediate, revised_df, remove_position_range
 
 """
 =============================================================
@@ -79,7 +79,7 @@ def main():
         input_group.add_argument('-r', '--reference', metavar="reference", type=str, required=True, help='REQUIRED. File to map against')
         input_group.add_argument('-a', '--annotation', metavar="annotation", type=str, required=True, help='REQUIRED. gff3 file to annotate variants')
         input_group.add_argument('-s', '--sample', metavar="sample", type=str, required=False, help='Sample to identify further files')
-        input_group.add_argument('-S', '--sample_list', type=str, required=False, help='Sample names to analyse only in the file supplied')
+        input_group.add_argument('-L', '--sample_list', type=str, required=False, help='Sample names to analyse only in the file supplied')
         input_group.add_argument('-p', '--primers', type=str, default='/home/laura/DATABASES/Anotacion/COVID/primers/nCoV-2019.bed', required=False, help='Bed file including primers to trim')
         
         quality_group = parser.add_argument_group('Quality parameters', 'parameters for diferent triming conditions')
@@ -103,12 +103,12 @@ def main():
         annot_group.add_argument('-V', '--annot_vcf', type=str, default=[], required=False, action='append', help='vcf file to annotate')
         annot_group.add_argument('-A', '--annot_aa', type=str, default=[], required=False, action='append', help='aminoacid file to annotate')
         annot_group.add_argument('-R', '--remove_bed', type=str, default=False, required=False, help='BED file with positions to remove')
-
-        annot_group = parser.add_argument_group('Annotation', 'parameters for variant annotation')
-
         annot_group.add_argument('--mash_database', type=str, required=False, default=False, help='MASH ncbi annotation containing all species database')
         annot_group.add_argument('--snpeff_database', type=str, required=False, default='NC_045512.2', help='snpEFF annotation database')
 
+        compare_group = parser.add_argument_group('Compare', 'parameters for compare_snp')
+
+        compare_group.add_argument('-S', '--only_snp', required=False, action='store_true', help='Use INDELS while comparing')
 
         arguments = parser.parse_args()
 
@@ -502,11 +502,17 @@ def main():
 
     #ddtb_add(out_filtered_ivar_dir, full_path_compare)
     compare_snp_matrix_recal = full_path_compare + ".revised.final.tsv"
+    compare_snp_matrix_INDEL = full_path_compare + ".revised_INDEL.final.tsv"
     compare_snp_matrix_recal_intermediate = full_path_compare + ".revised_intermediate.tsv"
-    recalibrated_snp_matrix_intermediate = ddbb_create_intermediate(out_variant_ivar_dir, out_stats_coverage_dir, min_freq_discard=0.1, min_alt_dp=4)
+    compare_snp_matrix_INDEL_intermediate = full_path_compare + ".revised_INDEL_intermediate.tsv"
+    recalibrated_snp_matrix_intermediate = ddbb_create_intermediate(out_variant_ivar_dir, out_stats_coverage_dir, min_freq_discard=0.1, min_alt_dp=4, only_snp=args.only_snp)
     recalibrated_snp_matrix_intermediate.to_csv(compare_snp_matrix_recal_intermediate, sep="\t", index=False)
+    compare_snp_matrix_INDEL_intermediate_df = remove_position_range(recalibrated_snp_matrix_intermediate)
+    compare_snp_matrix_INDEL_intermediate_df.to_csv(compare_snp_matrix_INDEL_intermediate, sep="\t", index=False)
     recalibrated_revised_df = revised_df(recalibrated_snp_matrix_intermediate, path_compare, min_freq_include=0.7, min_threshold_discard_sample=0.1, min_threshold_discard_position=0.4, remove_faulty=True, drop_samples=True, drop_positions=True)
     recalibrated_revised_df.to_csv(compare_snp_matrix_recal, sep="\t", index=False)
+    recalibrated_revised_INDEL_df = revised_df(compare_snp_matrix_INDEL_intermediate_df, path_compare, min_freq_include=0.7, min_threshold_discard_sample=0.4, min_threshold_discard_position=0.4,remove_faulty=True, drop_samples=True, drop_positions=True)
+    recalibrated_revised_INDEL_df.to_csv(compare_snp_matrix_INDEL, sep="\t", index=False)
     ddtb_compare(compare_snp_matrix_recal, distance=0)
 
     logger.info("\n\n" + MAGENTA + BOLD + "COMPARING FINISHED IN GROUP: " + group_name + END_FORMATTING + "\n")

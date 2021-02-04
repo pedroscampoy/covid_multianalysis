@@ -9,7 +9,7 @@ import argparse
 import sys
 import subprocess
 from sklearn.metrics import pairwise_distances, accuracy_score
-#import seaborn as sns
+import seaborn as sns
 import matplotlib.pyplot as plt
 import datetime
 import scipy.cluster.hierarchy as shc
@@ -40,7 +40,7 @@ def get_arguments():
     parser.add_argument('-c', '--only-compare', dest="only_compare", required=False, default=False, help='Add already calculated snp binary matrix')
     parser.add_argument('-r', '--recalibrate', required= False, type=str, default=False, help='Coverage folder')
     parser.add_argument('-R', '--remove_bed', type=str, default=False, required=False, help='BED file with positions to remove')
-    parser.add_argument('-S', '--only_snp', required=False, action='store_false', help='Use INDELS while comparing')
+    parser.add_argument('-S', '--only_snp', required=False, action='store_true', help='Use INDELS while comparing')
 
     parser.add_argument('-o', '--output', type=str, required=True, help='Name of all the output files, might include path')
 
@@ -106,9 +106,11 @@ def extract_lowfreq(tsv_file,  min_total_depth=4, min_alt_dp=4, min_freq_include
     df['ALT_FREQ'] = '?'
     df = df.rename(columns={'ALT_FREQ' : sample})
     if only_snp == True:
+        logger.debug('ONLY SNP SELECTED')
         df = df[~(df.ALT.str.startswith('+') | df.ALT.str.startswith('-'))]
         return df
     else:
+        logger.debug('SNP + INDELS SELECTED')
         return df
 
 def extract_uncovered(cov_file, min_total_depth=4):
@@ -196,7 +198,6 @@ def ddbb_create_intermediate(variant_dir, coverage_dir, min_freq_discard=0.1, mi
     return df
 
 
-
 ################################ END COMPARE SNP 2.0
 
 def remove_bed_positions(df, bed_file):
@@ -237,6 +238,23 @@ def bed_to_df(bed_file):
     df.columns = ["#CHROM", "start", "end", "description"]
         
     return df
+
+def remove_position_range(df):
+
+	INDELs = df[df['Position'].str.contains(r'\|-[ATCG]+', regex=True)]
+
+	bed_df = pd.DataFrame()
+	bed_df['#CHROM'] = INDELs['Position'].str.split('|').str[0]
+	bed_df['start'] = INDELs['Position'].str.split('|').str[2].astype('int') + 1
+	bed_df['length'] = INDELs['Position'].str.split(r'\|-').str[1].str.len().astype('int')
+	bed_df['end'] = INDELs['Position'].str.split('|').str[2].astype('int') + INDELs['Position'].str.split(r'\|-').str[1].str.len().astype('int')
+
+	for _, row in df.iterrows():
+		position_number = int(row.Position.split("|")[2])
+		if any(start <= position_number <= end for (start, end) in zip(bed_df.start.values.tolist(), bed_df.end.values.tolist())):
+            #logger.info('Position: {} removed found in {}'.format(row.Position, df))
+			df = df[df.Position != row.Position]
+	return df
 
 def import_VCF4_to_pandas(vcf_file, sep='\t'):
     header_lines = 0
@@ -936,13 +954,19 @@ if __name__ == '__main__':
         else:
             coverage_dir = os.path.abspath(args.recalibrate)
             compare_snp_matrix_recal = group_compare + ".revised.final.tsv"
+            compare_snp_matrix_INDEL = group_compare + ".revised_INDEL.final.tsv"
             compare_snp_matrix_recal_intermediate = group_compare + ".revised_intermediate.tsv"
+            compare_snp_matrix_INDEL_intermediate = group_compare + ".revised_INDEL_intermediate.tsv"
             recalibrated_snp_matrix_intermediate = ddbb_create_intermediate(input_dir, coverage_dir, min_freq_discard=0.1, min_alt_dp=4, only_snp=args.only_snp)
             if args.remove_bed:
                 recalibrated_snp_matrix_intermediate = remove_bed_positions(recalibrated_snp_matrix_intermediate, args.remove_bed)
             recalibrated_snp_matrix_intermediate.to_csv(compare_snp_matrix_recal_intermediate, sep="\t", index=False)
+            compare_snp_matrix_INDEL_intermediate_df = remove_position_range(recalibrated_snp_matrix_intermediate)
+            compare_snp_matrix_INDEL_intermediate_df.to_csv(compare_snp_matrix_INDEL_intermediate, sep="\t", index=False)
             recalibrated_revised_df = revised_df(recalibrated_snp_matrix_intermediate, output_dir, min_freq_include=0.7, min_threshold_discard_sample=0.4, min_threshold_discard_position=0.4,remove_faulty=True, drop_samples=True, drop_positions=True)
             recalibrated_revised_df.to_csv(compare_snp_matrix_recal, sep="\t", index=False)
+            recalibrated_revised_INDEL_df = revised_df(compare_snp_matrix_INDEL_intermediate_df, output_dir, min_freq_include=0.7, min_threshold_discard_sample=0.4, min_threshold_discard_position=0.4,remove_faulty=True, drop_samples=True, drop_positions=True)
+            recalibrated_revised_INDEL_df.to_csv(compare_snp_matrix_INDEL, sep="\t", index=False)
             ddtb_compare(compare_snp_matrix_recal, distance=args.distance)
     else:
         compare_matrix = os.path.abspath(args.only_compare)
