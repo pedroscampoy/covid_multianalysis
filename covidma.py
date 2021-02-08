@@ -431,8 +431,8 @@ def main():
     check_create_dir(out_annot_pangolin_dir)
     ####SNPEFF
     if args.snpeff_database != False:
-        for root, _, files in os.walk(out_filtered_ivar_dir):
-            if root == out_filtered_ivar_dir: 
+        for root, _, files in os.walk(out_variant_ivar_dir):
+            if root == out_variant_ivar_dir: 
                 for name in files:
                     if name.endswith('.tsv'):
                         sample = name.split('.')[0]
@@ -449,8 +449,8 @@ def main():
         logger.info(YELLOW + BOLD + "Ommiting User Annotation, no BED or VCF files supplied" + END_FORMATTING)
     else:
         check_create_dir(out_annot_user_dir)
-        for root, _, files in os.walk(out_filtered_ivar_dir):
-            if root == out_filtered_ivar_dir:
+        for root, _, files in os.walk(out_variant_ivar_dir):
+            if root == out_variant_ivar_dir:
                 for name in files:
                     if name.endswith('.tsv'):
                         sample = name.split('.')[0]

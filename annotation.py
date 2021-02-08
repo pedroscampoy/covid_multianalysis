@@ -29,7 +29,7 @@ def tsv_to_vcf(tsv_file):
     fial_columns = ['#CHROM', 'POS', 'ID', 'REF', 'ALT','QUAL', 'FILTER', 'INFO']
 
     if not is_empty:
-        df['INFO'] = df.apply(lambda x: "CODON={}-{};AA={}-{};DP={}".format(x.REF_CODON, x.ALT_CODON, x.REF_AA, x.ALT_AA, x.TOTAL_DP), axis=1)
+        df['INFO'] = df.apply(lambda x: "CODON={}-{};AA={}-{};DP={};ALT_FREQ={:.2f}".format(x.REF_CODON, x.ALT_CODON, x.REF_AA, x.ALT_AA, x.TOTAL_DP, x.ALT_FREQ), axis=1)
     else:
         df = df.reindex(columns = fial_columns)
     df = df[fial_columns]
@@ -90,7 +90,7 @@ def import_annot_to_pandas(vcf_file, sep='\t'):
                     'CDS.pos / CDS.length',
                     'AA.pos / AA.length',
                     'ERRORS / WARNINGS / INFO']
-    anlelle_headers = ['Codon_change', 'AA_change', 'DP', 'Allele']
+    anlelle_headers = ['Codon_change', 'AA_change', 'DP', 'ALT_FREQ']
 
 
     #Apply function to split and recover the first 15 fields = only first anotations, the most likely
