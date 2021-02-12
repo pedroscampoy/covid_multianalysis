@@ -21,7 +21,8 @@ from pe_mapper import bwa_mapping, sam_to_index_bam
 from bam_variant import picard_dictionary, samtools_faidx, picard_markdup, ivar_trim, ivar_variants, ivar_consensus, \
     replace_consensus_header, create_bamstat, create_coverage, create_consensus
 from vcf_process import filter_tsv_variants
-from annotation import annotate_snpeff, annotate_pangolin, user_annotation, user_annotation_aa
+from annotation import annotate_snpeff, annotate_pangolin, user_annotation, user_annotation_aa, annotation_to_html, \
+    report_samples_html
 from compare_snp import ddtb_add, ddtb_compare, ddbb_create_intermediate, revised_df, remove_position_range
 
 """
@@ -474,6 +475,21 @@ def main():
                         out_annot_aa_file = os.path.join(out_annot_user_aa_dir, sample + ".tsv")
                         user_annotation_aa(filename, out_annot_aa_file, aa_files=args.annot_aa)
     
+    ####USER AA TO HTML
+    annotated_samples = []
+    logger.info('Adapting annotation to html in {}'.format(group_name))
+    for root, _, files in os.walk(out_annot_user_aa_dir):
+        if root == out_annot_user_aa_dir:
+            for name in files:
+                if name.endswith('.tsv'):
+                    sample = name.split('.')[0]
+                    annotated_samples.append(sample)
+                    filename = os.path.join(root, name)
+                    annotation_to_html(filename, sample)
+    report_samples_html_all = report_samples_html.replace('ALLSAMPLES', (',').join(annotated_samples)) #NEW
+    with open(os.path.join(out_annot_user_aa_dir, '00_all_samples.html'), 'w+') as f:
+        f.write(report_samples_html_all)
+    
     ####PANGOLIN
     for root, _, files in os.walk(out_consensus_ivar_dir):
         if root == out_consensus_ivar_dir: 
@@ -522,102 +538,8 @@ def main():
     ######################################################
     logger.info(GREEN + "Creating refined consensus" + END_FORMATTING)
     create_consensus(reference, compare_snp_matrix_recal, out_stats_coverage_dir, out_consensus_dir)
-
-    """
  
-    #DETEMINING MIXED ORIGIN IN GROUP######################
-    #######################################################
-    output_vcfstat_file = os.path.join(out_table_dir, "vcf_stat.tab")
-    if os.path.isfile(output_vcfstat_file):
-        logger.info("\n" + YELLOW + DIM + output_vcfstat_file + " EXIST\nOmmiting Mixed search in group " + group_name + END_FORMATTING)
-        samples_mixed = []
-    else:
-        logger.info(GREEN + "Finding Mixed samples in " + group_name + END_FORMATTING)
-        samples_mixed = vcf_stats(out_table_dir, distance=15, quality=10)
-
-    if len(samples_mixed) > 0:
-        logger.info("\n" + YELLOW + BOLD + "There are mixed sample(s): " + "\n"\
-            + ",".join(samples_mixed) + END_FORMATTING + "\n")
-        remove_low_covered_mixed(args.output, samples_mixed, "Mixed")
-        #Remove sample from the list of filtered samples
-        ################################################
-        for samples_to_remove in samples_mixed:
-            sample_list_F.remove(samples_to_remove)
-    else:
-        logger.info("\n" + YELLOW + BOLD + "No mixed samples have been detected" + "\n")
-
-    logger.info("\n\n" + MAGENTA + BOLD + "VARIANT CALL FINISHED IN GROUP: " + group_name + END_FORMATTING + "\n")
-
-    #######################################################################################################################################
-    #################################END OF VARIANT CALLING################################################################################
-    #######################################################################################################################################
-    tuberculosis = False
-    if tuberculosis == True:
-        logger.info("\n\n" + BLUE + BOLD + "STARTING ANNOTATION IN GROUP: " + group_name + END_FORMATTING + "\n")
-
-        for root, _, files in os.walk(out_vcf_dir):
-            for name in files:
-                filename = os.path.join(root, name)
-                output_path = os.path.join(out_annot_dir, name)
-                if filename.endswith("combined.hf.vcf"):
-                    sample = name.split(".")[0]
-                    if sample in sample_list_F:
-                        #ANNOTATION -AUTO AND SPECIFIC- ###################
-                        ###################################################
-                        out_annot_name = sample + ".combined.hf.annot.tsv"
-                        output_annot_file = os.path.join(out_annot_dir, out_annot_name)
-
-                        if os.path.isfile(output_annot_file):
-                            logger.info(YELLOW + DIM + output_annot_file + " EXIST\nOmmiting Annotation for sample " + sample + END_FORMATTING)
-                        else:
-                            logger.info(GREEN + "Annotating snps in sample " + sample + END_FORMATTING)
-                            replace_reference(filename, output_path)
-                            snpeff_annotation(args, output_path, database=args.snpeff_database)
-                            #Handle output vcf file from SnpEff annotation
-                            vcf_path = (".").join(output_path.split(".")[:-1])
-                            annot_vcf = vcf_path + ".annot"
-                            #This function add SPECIFIC anotation
-                            if args.annot_bed:
-                                final_annotation(annot_vcf, *args.annot_bed)
-                            else:
-                                final_annotation(annot_vcf)
-
-
-        logger.info("\n\n" + MAGENTA + BOLD + "ANNOTATION FINISHED IN GROUP: " + group_name + END_FORMATTING + "\n")
-    else:
-        logger.info("NO TB Selected, snpEff won't be executed")
-
-
-
-
-    logger.info("\n\n" + BLUE + BOLD + "STARTING COMPARISON IN GROUP: " + group_name + END_FORMATTING + "\n")
-
-    check_create_dir(out_compare_dir)
-    folder_compare = today + "_" + group_name
-    path_compare = os.path.join(out_compare_dir, folder_compare)
-    check_create_dir(path_compare)
-    full_path_compare = os.path.join(path_compare, group_name)
-
     
-
-    #ddtb_add(out_vcf_dir, full_path_compare)
-    ddtb_add(out_vcf_dir, full_path_compare, recalibrate=args.output)
-
-    compare_snp_matrix = full_path_compare + ".revised.tsv"
-    
-    ddtb_compare(compare_snp_matrix)
-
-    logger.info("\n\n" + MAGENTA + BOLD + "COMPARING FINISHED IN GROUP: " + group_name + END_FORMATTING + "\n")
-
-
-    if args.noclean == True:
-        logger.info("\n\n" + BLUE + BOLD + "STARTING CLEANING IN GROUP: " + group_name + END_FORMATTING + "\n")
-        clean_unwanted_files(args)
-    else:
-        logger.info("No cleaning was requested")
-
-    
-    """
     logger.info("\n\n" + MAGENTA + BOLD + "#####END OF PIPELINE COVID MULTI ANALYSIS#####" + END_FORMATTING + "\n")
 
 if __name__ == '__main__':

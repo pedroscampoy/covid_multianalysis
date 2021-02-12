@@ -8,7 +8,7 @@ import pandas as pd
 import numpy as np
 import re
 import subprocess
-#from tabulate import tabulate
+from tabulate import tabulate
 from misc import check_create_dir, execute_subprocess
 
 logger = logging.getLogger()
@@ -282,6 +282,294 @@ def user_annotation_aa(annot_file, output_file, aa_files=[]):
             # Filtra la salida de SNPEff con las anotaciones aa
             # df.drop_duplicates(subset=['HGVS.p'], keep='first', inplace=True)
             df.to_csv(output_file, sep="\t", index=False)
+
+html_template = """
+<!DOCTYPE html>
+<html>
+    
+  <head>
+    <script src="http://code.jquery.com/jquery-3.3.1.min.js"></script>
+
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.1.3/css/bootstrap.css" rel="stylesheet" type="text/css" />
+    <link href="https://nightly.datatables.net/css/dataTables.bootstrap4.css" rel="stylesheet" type="text/css" />
+
+
+    <script src="https://nightly.datatables.net/js/jquery.dataTables.js"></script>
+    <script src="https://nightly.datatables.net/js/dataTables.bootstrap4.js"></script>
+
+    <style>
+        body {
+        font: 90%/1rem "Helvetica Neue", HelveticaNeue, Verdana, Arial, Helvetica, sans-serif;
+        margin: 0;
+        padding: 0;
+        color: #333;
+        background-color: #fff;
+        }
+    </style>
+
+    
+    <meta charset=utf-8 />
+    <title>COVID Variant report</title>
+    <meta name="description" content="https://github.com/pedroscampoy/covid_multianalysis">
+    <meta name="author" content="pedroscampoy@gmail.com">
+  </head>
+  <body>
+    <div class="container-fluid">
+        TABLESUMMARY
+    </div>
+
+    <script>
+        $(document).ready( function () {
+            var table = $('#variants').DataTable({
+                orderCellsTop: true,
+                initComplete: function () {
+                    this.api().columns([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]).every( function () {
+                        var column = this;
+                        var select = $('<select><option value=""></option></select>')
+                        .appendTo(  $('thead tr:eq(1) th:eq(' + this.index()  + ')') )
+                            .on( 'change', function () {
+                                var val = $.fn.dataTable.util.escapeRegex(
+                                    $(this).val()
+                                );
+                                column
+                                    .search( val ? '^'+val+'$' : '', true, false )
+                                    .draw();
+                            } );
+        
+                        column.data().unique().sort().each( function ( d, j ) {
+                            select.append( '<option value="'+d+'">'+d+'</option>' )
+                        } );
+                    } );
+                }
+            });
+        } );
+    </script>
+  </body>
+</html> 
+"""
+
+report_samples_html = """
+<!DOCTYPE html>
+<html>
+  <head>
+    <script src="http://code.jquery.com/jquery-3.3.1.min.js"></script>
+
+    <link
+      href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.1.3/css/bootstrap.css"
+      rel="stylesheet"
+      type="text/css"
+    />
+    <link
+      href="https://nightly.datatables.net/css/dataTables.bootstrap4.css"
+      rel="stylesheet"
+      type="text/css"
+    />
+
+    <script src="https://nightly.datatables.net/js/jquery.dataTables.js"></script>
+    <script src="https://nightly.datatables.net/js/dataTables.bootstrap4.js"></script>
+
+    <style>
+        html {
+        height: 100%;
+        }
+      body {
+        font: 90%/1rem "Helvetica Neue", HelveticaNeue, Verdana, Arial,
+          Helvetica, sans-serif;
+        margin: 0;
+        padding: 0;
+        color: #333;
+        background-color: #fff;
+        height: 100%;
+      }
+
+      .dropdown {
+        margin: 20px;
+      }
+
+      .dropdown-menu {
+        max-height: 20rem;
+        overflow-y: auto;
+      }
+
+      object {
+        width: 100%;
+        height: 100%;
+      }
+    </style>
+
+    <meta charset="utf-8" />
+    <title>COVID Variant report</title>
+    <meta
+      name="description"
+      content="https://github.com/pedroscampoy/covid_multianalysis"
+    />
+    <meta name="author" content="pedroscampoy@gmail.com" />
+  </head>
+  <body>
+    <div class="dropdown">
+      <button
+        class="btn btn-secondary dropdown-toggle"
+        type="button"
+        id="dropdown_samples"
+        data-toggle="dropdown"
+        aria-haspopup="true"
+        aria-expanded="false"
+      >
+        Sample
+      </button>
+      <div id="menu" class="dropdown-menu" aria-labelledby="dropdown_samples">
+        <form class="px-4 py-2">
+          <input
+            type="search"
+            class="form-control"
+            id="searchSample"
+            placeholder="20000000"
+            autofocus="autofocus"
+          />
+        </form>
+        <div id="menuItems"></div>
+        <div id="empty" class="dropdown-header">No samples found</div>
+      </div>
+    </div>
+
+    <div class="container-fluid w-100 h-100 mh-100" id="display-table">
+      
+    </div>
+
+    <script>
+      $(document).ready(function () {
+        var table = $("#variants").DataTable({
+          orderCellsTop: true,
+          initComplete: function () {
+            this.api()
+              .columns([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+              .every(function () {
+                var column = this;
+                var select = $('<select><option value=""></option></select>')
+                  .appendTo($("thead tr:eq(1) th:eq(" + this.index() + ")"))
+                  .on("change", function () {
+                    var val = $.fn.dataTable.util.escapeRegex($(this).val());
+                    column
+                      .search(val ? "^" + val + "$" : "", true, false)
+                      .draw();
+                  });
+
+                column
+                  .data()
+                  .unique()
+                  .sort()
+                  .each(function (d, j) {
+                    select.append(
+                      '<option value="' + d + '">' + d + "</option>"
+                    );
+                  });
+              });
+          },
+        });
+      });
+
+      //https://stackoverflow.com/questions/45007712/bootstrap-4-dropdown-with-search
+      //Initialize with the list of symbols
+      let names = [ALLSAMPLES];
+
+      //Find the input search box
+      let search = document.getElementById("searchSample");
+
+      //Find every item inside the dropdown
+      let items = document.getElementsByClassName("dropdown-item");
+
+      buildDropDown = (values) => {
+        let contents = [];
+        for (let name of values) {
+          contents.push(
+            '<input type="button" class="dropdown-item" type="button" value="' +
+              name +
+              '"/>'
+          );
+        }
+        $("#menuItems").append(contents.join(""));
+
+        //Hide the row that shows no items were found
+        $("#empty").hide();
+      }
+
+      //Capture the event when user types into the search box
+      window.addEventListener("input", () => filter(search.value.trim().toLowerCase()));
+
+      //For every word entered by the user, check if the symbol starts with that word
+      //If it does show the symbol, else hide it
+      function filter(word) {
+        let length = items.length;
+        let collection = [];
+        let hidden = 0;
+        for (let i = 0; i < length; i++) {
+          if (items[i].value.toLowerCase().startsWith(word)) {
+            $(items[i]).show();
+          } else {
+            $(items[i]).hide();
+            hidden++;
+          }
+        }
+
+        //If all items are hidden, show the empty view
+        if (hidden === length) {
+          $("#empty").show();
+        } else {
+          $("#empty").hide();
+        }
+      }
+
+      //If the user clicks on any item, set the title of the button as the text of the item
+      $("#menuItems").on("click", ".dropdown-item", function () {
+        $("#dropdown_samples").text($(this)[0].value);
+        $("#dropdown_samples").dropdown("toggle");
+        document.getElementById("display-table").innerHTML=`<object type="text/html" data="${$(this)[0].value}.html" ></object>`;
+
+      });
+
+      buildDropDown(names);
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.0.0-beta.2/js/bootstrap.bundle.min.js"></script>
+  </body>
+</html>
+"""
+
+def annotation_to_html(file_annot, sample):
+    folder = ('/').join(file_annot.split('/')[0:-1])
+
+    df = pd.read_csv(file_annot, sep="\t")
+    df = df [['#CHROM', 'POS', 'REF', 'ALT', 'Codon_change',
+        'AA_change', 'DP', 'ALT_FREQ', 'Annotation',
+        'Annotation_Impact', 'Gene_Name', 'HGVS.p'] + df.columns[26:].tolist()]
+    if 'Variants' in df.columns:
+        df = df.drop('Variants', axis=1)
+    if 'DVariant' in df.columns:
+        df = df.drop('DVariant', axis=1)
+    df = df.drop_duplicates(subset=['#CHROM', 'POS', 'REF', 'ALT'], keep="first")
+    df = df[df.ALT_FREQ >= 0.2]
+
+    handle_aa = lambda x: None if x != x else x.split(':')[1]
+    df.iloc[:,12:] = df.iloc[:,12:].applymap(handle_aa)
+
+    df = pd.melt(df, id_vars=['#CHROM', 'POS', 'REF', 'ALT', 'Codon_change', 'AA_change', 'DP',
+       'ALT_FREQ', 'Annotation', 'Annotation_Impact', 'Gene_Name', 'HGVS.p'], value_vars=df.columns[12:].tolist())
+    
+    if 'variable' in df.columns:
+        df = df.drop('variable', axis=1)
+    df = df.rename(columns={'value': 'variable'})
+
+    table = tabulate(df, headers='keys', tablefmt='html', showindex=False)
+    table = table.replace("<table>", "<table id=\"variants\" class=\"table table-striped table-bordered nowrap\" width=\"100%\">")
+    table = table.replace("style=\"text-align: right;\"", "")
+
+    row_filter = "<tr>\n" + "<th></th>\n" * len(df.columns) + "</tr>\n"
+
+    table = table.replace("</tr>\n</thead>", "</tr>\n" + row_filter + "</thead>")
+
+    final_html = html_template.replace('TABLESUMMARY', table)
+
+    with open(os.path.join(folder, sample + ".html"), 'w+') as f:
+        f.write(final_html)
 
 
 if __name__ == '__main__':
