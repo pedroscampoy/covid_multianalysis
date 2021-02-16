@@ -502,7 +502,6 @@ def main():
                     filename = os.path.join(root, name)
                     annotation_to_html(filename, sample)
     annotated_samples = [str(x) for x in annotated_samples]
-    print(annotated_samples)
     report_samples_html_all = report_samples_html.replace('ALLSAMPLES', ('","').join(annotated_samples)) #NEW
     with open(os.path.join(out_annot_user_aa_dir, '00_all_samples.html'), 'w+') as f:
         f.write(report_samples_html_all)
