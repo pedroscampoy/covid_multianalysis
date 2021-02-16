@@ -263,10 +263,14 @@ def checkAA(snpEffRow, dfAnnot):
 def annotate_aas(annot_file, aas):
     df = pd.read_csv(annot_file, sep="\t")
     for aa in aas:
-        logger.info("ANNOTATING AA: {}".format(aa))
+        
         header = (".").join(aa.split("/")[-1].split(".")[0:-1])
         dfaa = pd.read_csv(aa, sep="\t", names=['aa', 'annot'])
-        df[header] = df.apply(lambda x: checkAA(x['HGVS.p'], dfaa), axis=1)
+        if not header in df.columns:
+          logger.info("ANNOTATING AA: {}".format(aa))
+          df[header] = df.apply(lambda x: checkAA(x['HGVS.p'], dfaa), axis=1)
+        else:
+          logger.info("SKIPPED AA: {}".format(aa))
 
     return df
 

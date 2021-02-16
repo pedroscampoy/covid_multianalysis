@@ -473,7 +473,10 @@ def main():
                         logger.info('User aa annotation in sample {}'.format(sample))
                         filename = os.path.join(root, name)
                         out_annot_aa_file = os.path.join(out_annot_user_aa_dir, sample + ".tsv")
-                        user_annotation_aa(filename, out_annot_aa_file, aa_files=args.annot_aa)
+                        if os.path.isfile(out_annot_aa_file):
+                            user_annotation_aa(out_annot_aa_file, out_annot_aa_file, aa_files=args.annot_aa)
+                        else:
+                            user_annotation_aa(filename, out_annot_aa_file, aa_files=args.annot_aa)
 
     ####PANGOLIN
     for root, _, files in os.walk(out_consensus_ivar_dir):
