@@ -470,7 +470,7 @@ report_samples_html = """
 
       //https://stackoverflow.com/questions/45007712/bootstrap-4-dropdown-with-search
       //Initialize with the list of symbols
-      let names = [ALLSAMPLES];
+      let names = ["ALLSAMPLES"];
 
       //Find the input search box
       let search = document.getElementById("searchSample");
@@ -503,7 +503,7 @@ report_samples_html = """
         let collection = [];
         let hidden = 0;
         for (let i = 0; i < length; i++) {
-          if (items[i].value.toLowerCase().startsWith(word)) {
+          if (items[i].value.toLowerCase().includes(word)) {
             $(items[i]).show();
           } else {
             $(items[i]).hide();
@@ -537,7 +537,16 @@ report_samples_html = """
 def annotation_to_html(file_annot, sample):
     folder = ('/').join(file_annot.split('/')[0:-1])
 
-    df = pd.read_csv(file_annot, sep="\t")
+    logger.debug('Adapting html in sample: {}'.format(sample))
+
+    df = pd.read_csv(file_annot, sep="\t", dtype=str)
+    df['ALT_FREQ'] = df['ALT_FREQ'].astype(float)
+    df['POS'] = df['POS'].astype(int)
+
+    logger.debug('read csv {}'.format(file_annot))
+
+    #dtype={"user_id": int, "username": "string"}
+
     df = df [['#CHROM', 'POS', 'REF', 'ALT', 'Codon_change',
         'AA_change', 'DP', 'ALT_FREQ', 'Annotation',
         'Annotation_Impact', 'Gene_Name', 'HGVS.p'] + df.columns[26:].tolist()]

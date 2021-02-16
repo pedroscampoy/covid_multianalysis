@@ -412,12 +412,12 @@ def main():
     ###############################coverage OUTPUT SUMMARY
     ######################################################
     logger.info(GREEN + "Creating summary report for coverage result " + END_FORMATTING)
-    obtain_group_cov_stats(out_stats_coverage_dir, group_name)
+    #obtain_group_cov_stats(out_stats_coverage_dir, group_name)
 
     #####################READS and VARIANTS OUTPUT SUMMARY
     ######################################################
     logger.info(GREEN + "Creating overal summary report " + END_FORMATTING)
-    obtain_overal_stats(output, group_name)
+    #obtain_overal_stats(output, group_name)
 
     ######################################REMOVE UNCOVERED
     ##############################################################################################################################
@@ -474,23 +474,7 @@ def main():
                         filename = os.path.join(root, name)
                         out_annot_aa_file = os.path.join(out_annot_user_aa_dir, sample + ".tsv")
                         user_annotation_aa(filename, out_annot_aa_file, aa_files=args.annot_aa)
-    
-    ####USER AA TO HTML
-    annotated_samples = []
-    logger.info('Adapting annotation to html in {}'.format(group_name))
-    for root, _, files in os.walk(out_annot_user_aa_dir):
-        if root == out_annot_user_aa_dir:
-            for name in files:
-                if name.endswith('.tsv'):
-                    sample = name.split('.')[0]
-                    annotated_samples.append(sample)
-                    filename = os.path.join(root, name)
-                    annotation_to_html(filename, sample)
-    annotated_samples = [str(x) for x in annotated_samples]
-    report_samples_html_all = report_samples_html.replace('ALLSAMPLES', (',').join(annotated_samples)) #NEW
-    with open(os.path.join(out_annot_user_aa_dir, '00_all_samples.html'), 'w+') as f:
-        f.write(report_samples_html_all)
-    
+
     ####PANGOLIN
     for root, _, files in os.walk(out_consensus_ivar_dir):
         if root == out_consensus_ivar_dir: 
@@ -505,6 +489,23 @@ def main():
                     else:
                         logger.info(GREEN + "Obtaining Lineage in sample " + sample + END_FORMATTING)
                         annotate_pangolin(filename, out_annot_pangolin_dir, out_pangolin_filename, threads=args.threads, max_ambig=0.6)
+
+    ####USER AA TO HTML
+    annotated_samples = []
+    logger.info('Adapting annotation to html in {}'.format(group_name))
+    for root, _, files in os.walk(out_annot_user_aa_dir):
+        if root == out_annot_user_aa_dir:
+            for name in files:
+                if name.endswith('.tsv'):
+                    sample = name.split('.')[0]
+                    annotated_samples.append(sample)
+                    filename = os.path.join(root, name)
+                    annotation_to_html(filename, sample)
+    annotated_samples = [str(x) for x in annotated_samples]
+    print(annotated_samples)
+    report_samples_html_all = report_samples_html.replace('ALLSAMPLES', ('","').join(annotated_samples)) #NEW
+    with open(os.path.join(out_annot_user_aa_dir, '00_all_samples.html'), 'w+') as f:
+        f.write(report_samples_html_all)
 
 
     ################SNP COMPARISON using tsv variant files
