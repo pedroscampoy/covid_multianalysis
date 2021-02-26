@@ -412,12 +412,12 @@ def main():
     ###############################coverage OUTPUT SUMMARY
     ######################################################
     logger.info(GREEN + "Creating summary report for coverage result " + END_FORMATTING)
-    #obtain_group_cov_stats(out_stats_coverage_dir, group_name)
+    obtain_group_cov_stats(out_stats_coverage_dir, group_name)
 
     #####################READS and VARIANTS OUTPUT SUMMARY
     ######################################################
     logger.info(GREEN + "Creating overal summary report " + END_FORMATTING)
-    #obtain_overal_stats(output, group_name)
+    obtain_overal_stats(output, group_name)
 
     ######################################REMOVE UNCOVERED
     ##############################################################################################################################
@@ -533,7 +533,10 @@ def main():
     recalibrated_revised_df.to_csv(compare_snp_matrix_recal, sep="\t", index=False)
     recalibrated_revised_INDEL_df = revised_df(compare_snp_matrix_INDEL_intermediate_df, path_compare, min_freq_include=0.7, min_threshold_discard_sample=0.4, min_threshold_discard_position=0.4,remove_faulty=True, drop_samples=True, drop_positions=True)
     recalibrated_revised_INDEL_df.to_csv(compare_snp_matrix_INDEL, sep="\t", index=False)
+
     ddtb_compare(compare_snp_matrix_recal, distance=0)
+    ddtb_compare(compare_snp_matrix_INDEL, distance=0, indel=True)
+
 
     logger.info("\n\n" + MAGENTA + BOLD + "COMPARING FINISHED IN GROUP: " + group_name + END_FORMATTING + "\n")
 

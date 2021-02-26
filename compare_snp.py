@@ -841,16 +841,19 @@ def matrix_to_common(snp_matrix, output_name):
     else:
         logger.info("No common SNPs were found")
 
-def ddtb_compare(final_database, distance=0):
+def ddtb_compare(final_database, distance=0, indel=False):
 
     database_file = os.path.abspath(final_database)
     check_file_exists(database_file)
     presence_ddbb = import_to_pandas(database_file, header=True)
 
-    output_path = database_file.split(".")[0]
 
+    if indel:
+        output_path = database_file.split(".")[0] + '.INDEL'
+    else:
+        output_path = database_file.split(".")[0]
+    
     logger.info("Output path is: " + output_path)
-
 
     logger.info(BLUE + BOLD + "Comparing all samples in " + database_file + END_FORMATTING)
     #prior_pairwise = datetime.datetime.now()
@@ -967,7 +970,9 @@ if __name__ == '__main__':
             recalibrated_revised_df.to_csv(compare_snp_matrix_recal, sep="\t", index=False)
             recalibrated_revised_INDEL_df = revised_df(compare_snp_matrix_INDEL_intermediate_df, output_dir, min_freq_include=0.7, min_threshold_discard_sample=0.4, min_threshold_discard_position=0.4,remove_faulty=True, drop_samples=True, drop_positions=True)
             recalibrated_revised_INDEL_df.to_csv(compare_snp_matrix_INDEL, sep="\t", index=False)
+
             ddtb_compare(compare_snp_matrix_recal, distance=args.distance)
+            ddtb_compare(compare_snp_matrix_INDEL, distance=args.distance, indel=True)
     else:
         compare_matrix = os.path.abspath(args.only_compare)
         ddtb_compare(compare_matrix, distance=args.distance)
