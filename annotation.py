@@ -283,8 +283,8 @@ def user_annotation_aa(annot_file, output_file, aa_files=[]):
                 fout.write('No annotation found')
         else:
             df = annotate_aas(annot_file, aa_files)
-            # Filtra la salida de SNPEff con las anotaciones aa
-            # df.drop_duplicates(subset=['HGVS.p'], keep='first', inplace=True)
+            # Filter SNPEff output with aa annotations
+            df.drop_duplicates(subset=['HGVS.p'], keep='first', inplace=True) #There may be 1+ calls in the same position due to diferents reference ID genes. Useful for the -A flag.
             df.to_csv(output_file, sep="\t", index=False)
 
 html_template = """
@@ -543,46 +543,53 @@ def annotation_to_html(file_annot, sample):
 
     logger.debug('Adapting html in sample: {}'.format(sample))
 
-    df = pd.read_csv(file_annot, sep="\t", dtype=str)
-    df['ALT_FREQ'] = df['ALT_FREQ'].astype(float)
-    df['POS'] = df['POS'].astype(int)
+    with open(file_annot, 'r') as f:
+      content = f.read().strip()
+      if content == "No annotation found":
+        logger.debug("{} file has NO Annotation".format(file_annot))
+        with open(sample, 'w+') as fout:
+            fout.write('No annotation found')
+      else:
+            df = pd.read_csv(file_annot, sep="\t", dtype=str)
+            df['ALT_FREQ'] = df['ALT_FREQ'].astype(float)
+            df['POS'] = df['POS'].astype(int)
 
-    logger.debug('read csv {}'.format(file_annot))
+            logger.debug('read csv {}'.format(file_annot))
 
-    #dtype={"user_id": int, "username": "string"}
+            #dtype={"user_id": int, "username": "string"}
 
-    df = df [['#CHROM', 'POS', 'REF', 'ALT', 'Codon_change',
-        'AA_change', 'DP', 'ALT_FREQ', 'Annotation',
-        'Annotation_Impact', 'Gene_Name', 'HGVS.p'] + df.columns[26:].tolist()]
-    if 'Variants' in df.columns:
-        df = df.drop('Variants', axis=1)
-    if 'DVariant' in df.columns:
-        df = df.drop('DVariant', axis=1)
-    df = df.drop_duplicates(subset=['#CHROM', 'POS', 'REF', 'ALT'], keep="first")
-    df = df[df.ALT_FREQ >= 0.2]
+            df = df [['#CHROM', 'POS', 'REF', 'ALT', 'Codon_change',
+                'AA_change', 'DP', 'ALT_FREQ', 'Annotation',
+                'Annotation_Impact', 'Gene_Name', 'HGVS.p'] + df.columns[26:].tolist()]
+            if 'Variants' in df.columns:
+                df = df.drop('Variants', axis=1)
+            if 'DVariant' in df.columns:
+                df = df.drop('DVariant', axis=1)
+            df = df.drop_duplicates(subset=['#CHROM', 'POS', 'REF', 'ALT'], keep="first")
+            df = df[df.ALT_FREQ >= 0.2]
 
-    handle_aa = lambda x: None if x != x else x.split(':')[1]
-    df.iloc[:,12:] = df.iloc[:,12:].applymap(handle_aa)
+            handle_aa = lambda x: None if x != x else x.split(':')[1]
+            df.iloc[:,12:] = df.iloc[:,12:].applymap(handle_aa)
 
-    df = pd.melt(df, id_vars=['#CHROM', 'POS', 'REF', 'ALT', 'Codon_change', 'AA_change', 'DP',
-       'ALT_FREQ', 'Annotation', 'Annotation_Impact', 'Gene_Name', 'HGVS.p'], value_vars=df.columns[12:].tolist())
-    
-    if 'variable' in df.columns:
-        df = df.drop('variable', axis=1)
-    df = df.rename(columns={'value': 'variable'})
+            df = pd.melt(df, id_vars=['#CHROM', 'POS', 'REF', 'ALT', 'Codon_change', 'AA_change', 'DP',
+              'ALT_FREQ', 'Annotation', 'Annotation_Impact', 'Gene_Name', 'HGVS.p'], value_vars=df.columns[12:].tolist())
+            
+            if 'variable' in df.columns:
+                df = df.drop('variable', axis=1)
+            df = df.rename(columns={'value': 'variable'})
 
-    table = tabulate(df, headers='keys', tablefmt='html', showindex=False)
-    table = table.replace("<table>", "<table id=\"variants\" class=\"table table-striped table-bordered nowrap\" width=\"100%\">")
-    table = table.replace("style=\"text-align: right;\"", "")
+            table = tabulate(df, headers='keys', tablefmt='html', showindex=False)
+            table = table.replace("<table>", "<table id=\"variants\" class=\"table table-striped table-bordered nowrap\" width=\"100%\">")
+            table = table.replace("style=\"text-align: right;\"", "")
 
-    row_filter = "<tr>\n" + "<th></th>\n" * len(df.columns) + "</tr>\n"
+            row_filter = "<tr>\n" + "<th></th>\n" * len(df.columns) + "</tr>\n"
 
-    table = table.replace("</tr>\n</thead>", "</tr>\n" + row_filter + "</thead>")
+            table = table.replace("</tr>\n</thead>", "</tr>\n" + row_filter + "</thead>")
 
-    final_html = html_template.replace('TABLESUMMARY', table)
+            final_html = html_template.replace('TABLESUMMARY', table)
 
-    with open(os.path.join(folder, sample + ".html"), 'w+') as f:
-        f.write(final_html)
+            with open(os.path.join(folder, sample + ".html"), 'w+') as f:
+                f.write(final_html)
 
 
 if __name__ == '__main__':
