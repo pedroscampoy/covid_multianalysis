@@ -547,8 +547,8 @@ def annotation_to_html(file_annot, sample):
       content = f.read().strip()
       if content == "No annotation found":
         logger.debug("{} file has NO Annotation".format(file_annot))
-        with open(sample, 'w+') as fout:
-            fout.write('No annotation found')
+        # with open(os.path.join(folder, sample + .html), 'w+') as fout:
+        #     fout.write('No annotation found')
       else:
             df = pd.read_csv(file_annot, sep="\t", dtype=str)
             df['ALT_FREQ'] = df['ALT_FREQ'].astype(float)
