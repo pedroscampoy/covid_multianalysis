@@ -5,6 +5,7 @@ import os
 import sys
 import re
 import logging
+import concurrent.futures
 
 # Third party imports
 import argparse
@@ -35,7 +36,7 @@ AUTHOR: Pedro J. Sola (pedroscampoy@gmail.com)
 d^v^b
 VERSION=0.1
 CREATED: 22 Sep 2020
-REVISION: 
+REVISION:
 
 
 TODO:
@@ -212,7 +213,7 @@ def main():
     #AND KEY FILES ######################################
     #####################################################
     # Annotation related parameters
-    #script_dir = os.path.dirname(os.path.realpath(__file__))
+    # script_dir = os.path.dirname(os.path.realpath(__file__))
 
     # Output related
     out_qc_dir = os.path.join(output, "Quality")
@@ -500,8 +501,8 @@ def main():
     # REMOVE UNCOVERED
     ##############################################################################################################################
     logger.info(GREEN + "Removing low quality samples" + END_FORMATTING)
-    remove_low_quality(output, min_percentage_20x=args.coverage20,
-                       min_hq_snp=args.min_snp, type_remove='Uncovered')
+    # remove_low_quality(output, min_percentage_20x=args.coverage20,
+    #                   min_hq_snp=args.min_snp, type_remove='Uncovered')
 
     #ANNOTATION WITH SNPEFF, USER INOUT AND PANGOLIN ####
     #####################################################
@@ -575,23 +576,31 @@ def main():
                                 filename, out_annot_aa_file, aa_files=args.annot_aa)
 
     # PANGOLIN
-    for root, _, files in os.walk(out_consensus_ivar_dir):
-        if root == out_consensus_ivar_dir:
-            for name in files:
-                if name.endswith('.fa'):
-                    sample = name.split('.')[0]
-                    filename = os.path.join(root, name)
-                    out_pangolin_filename = sample + ".lineage.csv"
-                    out_pangolin_file = os.path.join(
-                        out_annot_pangolin_dir, out_pangolin_filename)
-                    if os.path.isfile(out_pangolin_file):
-                        logger.info(YELLOW + DIM + out_pangolin_file +
-                                    " EXIST\nOmmiting Lineage for  sample " + sample + END_FORMATTING)
-                    else:
-                        logger.info(
-                            GREEN + "Obtaining Lineage in sample " + sample + END_FORMATTING)
-                        annotate_pangolin(filename, out_annot_pangolin_dir,
-                                          out_pangolin_filename, threads=args.threads, max_ambig=0.6)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.threads) as executor:
+        futures_pangolin = []
+
+        for root, _, files in os.walk(out_consensus_ivar_dir):
+            if root == out_consensus_ivar_dir:
+                for name in files:
+                    if name.endswith('.fa'):
+                        sample = name.split('.')[0]
+                        filename = os.path.join(root, name)
+                        out_pangolin_filename = sample + ".lineage.csv"
+                        out_pangolin_file = os.path.join(
+                            out_annot_pangolin_dir, out_pangolin_filename)
+                        if os.path.isfile(out_pangolin_file):
+                            logger.info(YELLOW + DIM + out_pangolin_file +
+                                        " EXIST\nOmmiting Lineage for  sample " + sample + END_FORMATTING)
+                        else:
+                            logger.info(
+                                GREEN + "Obtaining Lineage in sample " + sample + END_FORMATTING)
+                            future = executor.submit(
+                                annotate_pangolin, filename, out_annot_pangolin_dir, out_pangolin_filename, threads=args.threads, max_ambig=0.6)
+                            futures_pangolin.append(future)
+                for future in concurrent.futures.as_completed(futures_pangolin):
+                    logger.info(future.result())
+                    # annotate_pangolin(filename, out_annot_pangolin_dir,
+                    #                out_pangolin_filename, threads=args.threads, max_ambig=0.6)
 
     # USER AA TO HTML
     annotated_samples = []
@@ -621,7 +630,7 @@ def main():
     check_create_dir(path_compare)
     full_path_compare = os.path.join(path_compare, group_name)
 
-    #ddtb_add(out_filtered_ivar_dir, full_path_compare)
+    # ddtb_add(out_filtered_ivar_dir, full_path_compare)
     compare_snp_matrix_recal = full_path_compare + ".revised.final.tsv"
     compare_snp_matrix_INDEL = full_path_compare + ".revised_INDEL.final.tsv"
     compare_snp_matrix_recal_intermediate = full_path_compare + ".revised_intermediate.tsv"
