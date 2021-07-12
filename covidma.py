@@ -185,8 +185,6 @@ def main():
     logger.info("ARGUMENTS:")
     logger.info(str(args))
 
-    check_reanalysis(args.output)
-
     # Obtain all R1 and R2 from folder
     r1, r2 = extract_read_list(args.input_dir)
 
@@ -200,8 +198,11 @@ def main():
     else:
         logger.info("samples will be filtered")
         sample_list_F = file_to_list(args.sample_list)
+
+    new_samples = check_reanalysis(args.output, sample_list_F)
+
     logger.info("\n%d samples will be analysed: %s" %
-                (len(sample_list_F), ",".join(sample_list_F)))
+                (len(new_samples), ",".join(new_samples)))
 
     #PREPARE REFERENCE FOR MAPPING + FAI + DICT #########
     #####################################################
@@ -244,6 +245,8 @@ def main():
     out_annot_user_dir = os.path.join(out_annot_dir, "user")  # subfolder
     out_annot_user_aa_dir = os.path.join(out_annot_dir, "user_aa")  # subfolder
 
+    new_sample_number = 0
+
     for r1_file, r2_file in zip(r1, r2):
         # EXtract sample name
         sample = extract_sample(r1_file, r2_file)
@@ -257,8 +260,14 @@ def main():
             output_markdup_trimmed_file = os.path.join(
                 out_map_dir, out_markdup_trimmed_name)
 
-            logger.info("\n" + WHITE_BG + "STARTING SAMPLE: " + sample +
-                        " (" + sample_number + "/" + sample_total + ")" + END_FORMATTING)
+            if sample in new_samples:
+                new_sample_number = str(int(new_sample_number) + 1)
+                new_sample_total = str(len(new_samples))
+                logger.info("\n" + WHITE_BG + "STARTING SAMPLE: " + sample +
+                            " (" + sample_number + "/" + sample_total + ")" + " (" + new_sample_number + "/" + new_sample_total + ")" + END_FORMATTING)
+            else:
+                logger.info("\n" + WHITE_BG + "STARTING SAMPLE: " + sample +
+                            " (" + sample_number + "/" + sample_total + ")" + END_FORMATTING)
 
             if not os.path.isfile(output_markdup_trimmed_file):
 
