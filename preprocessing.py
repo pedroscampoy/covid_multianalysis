@@ -58,16 +58,17 @@ def fastp_trimming(r1, r2, sample, output_dir, threads=6, min_qual=20, window_si
            '--out2', output_trimmed_r2,
            '--detect_adapter_for_pe',
            '--cut_tail',
-           '--trim_front1', '3',
-           '--trim_front2', '3',
-           '--trim_tail1', '3',
-           '--trim_tail2', '3',
            '--cut_window_size', str(window_size),
            '--cut_mean_quality', str(min_qual),
            '--length_required', str(min_len),
            '--json', json_file,
            '--html', html_file,
            '--thread', str(threads)]
+
+    #     '--trim_front1', '3',
+    #    '--trim_front2', '3',
+    #    '--trim_tail1', '3',
+    #    '--trim_tail2', '3',
 
     execute_subprocess(cmd)
 
