@@ -155,8 +155,14 @@ def ddbb_create_intermediate(variant_dir, coverage_dir, min_freq_discard=0.1, mi
                     filename = os.path.join(root, name)
                     dfv = import_tsv_variants(filename, only_snp=only_snp)
                     df = df.merge(dfv, how='outer')
+
     # Round frequencies
+    df = df[['REGION', 'POS', 'REF', 'ALT'] + [col for col in df.columns if col !=
+                                               'REGION' and col != 'POS' and col != 'REF' and col != 'ALT']]
+    # df.iloc[:, 4:] = df.iloc[:, 4:].apply(pd.to_numeric)
     df = df.round(2)
+    # print(df)
+
     #Remove <= 0.1 (parameter in function)
     def handle_lowfreq(x): return None if x <= min_freq_discard else x
     df.iloc[:, 4:] = df.iloc[:, 4:].applymap(handle_lowfreq)
