@@ -65,7 +65,7 @@ def fastp_trimming(r1, r2, sample, output_dir, threads=6, min_qual=20, window_si
            '--html', html_file,
            '--thread', str(threads)]
 
-    #     '--trim_front1', '3',
+    #    '--trim_front1', '3',
     #    '--trim_front2', '3',
     #    '--trim_tail1', '3',
     #    '--trim_tail2', '3',
