@@ -8,7 +8,7 @@ import datetime
 import pandas as pd
 import numpy as np
 from statistics import mean
-
+from pandarallel import pandarallel
 
 logger = logging.getLogger()
 
@@ -356,20 +356,39 @@ def extract_n_consensus(output_dir, sample):
 
 
 def obtain_overal_stats(output_dir, group):
+    pandarallel.initialize()
+    samples_to_skip = []
+    previous_stat = False
+
     stat_folder = os.path.join(output_dir, 'Stats')
     overal_stat_file = os.path.join(stat_folder, group + ".overal.stats.tab")
+
+    if os.path.exists(overal_stat_file):
+        previous_stat = True
+        df_stat = pd.read_csv(overal_stat_file, sep="\t")
+        samples_to_skip = df_stat["#SAMPLE"].tolist()
+        logger.debug("Skipped samples for coverage calculation:" +
+                     (",").join(samples_to_skip))
+
     for root, _, files in os.walk(stat_folder):
         for name in files:
             if name.endswith('coverage.summary.tab'):
                 filename = os.path.join(root, name)
                 df = pd.read_csv(filename, sep="\t")
-                df[['HQ_SNP', 'HTZ_SNP', 'INDELS']] = df.apply(lambda x: extract_snp_count(
-                    output_dir, x['#SAMPLE']), axis=1, result_type="expand")
-                df[['mapped_reads', 'perc_mapped', 'paired_mapped', 'perc_paired']] = df.apply(
-                    lambda x: extract_mapped_reads(output_dir, x['#SAMPLE']), axis=1, result_type="expand")
-                df[['N_groups', 'N_individual', 'N_leading', 'N_tailing', 'N_sum_len', 'N_total_perc', 'N_mean_len']] = df.apply(
-                    lambda x: extract_n_consensus(output_dir, x['#SAMPLE']), axis=1, result_type="expand")
-    df.to_csv(overal_stat_file, sep="\t", index=False)
+                df = df[~df["#SAMPLE"].isin(samples_to_skip)]
+                if df.shape[0] > 0:
+                    df[['HQ_SNP', 'HTZ_SNP', 'INDELS']] = df.parallel_apply(lambda x: extract_snp_count(
+                        output_dir, x['#SAMPLE']), axis=1, result_type="expand")
+                    df[['mapped_reads', 'perc_mapped', 'paired_mapped', 'perc_paired']] = df.parallel_apply(
+                        lambda x: extract_mapped_reads(output_dir, x['#SAMPLE']), axis=1, result_type="expand")
+                    # df[['N_groups', 'N_individual', 'N_leading', 'N_tailing', 'N_sum_len', 'N_total_perc', 'N_mean_len']] = df.parallel_apply(
+                    # lambda x: extract_n_consensus(output_dir, x['#SAMPLE']), axis=1, result_type="expand")
+
+    if previous_stat:
+        df = pd.concat([df_stat, df], ignore_index=True, sort=True)
+        df.to_csv(overal_stat_file, sep="\t", index=False)
+    else:
+        df.to_csv(overal_stat_file, sep="\t", index=False)
 
 
 def edit_sample_list(file_list, sample_list):
