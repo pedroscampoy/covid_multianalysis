@@ -10,6 +10,7 @@ import re
 import subprocess
 from tabulate import tabulate
 from misc import check_create_dir, execute_subprocess
+from pandarallel import pandarallel
 
 logger = logging.getLogger()
 
@@ -97,7 +98,7 @@ def import_annot_to_pandas(vcf_file, sep='\t'):
 
     #Apply function to split and recover the first 15 fields = only first anotations, the most likely
 
-    df[anlelle_headers] = df.parallel_(lambda x: x.INFO.split(';')[0:4], axis=1, result_type="expand")
+    df[anlelle_headers] = df.parallel_apply(lambda x: x.INFO.split(';')[0:4], axis=1, result_type="expand")
     
     for head in anlelle_headers:
         df[head] = df[head].str.split("=").str[-1]
