@@ -10,6 +10,7 @@ import re
 import subprocess
 from tabulate import tabulate
 from misc import check_create_dir, execute_subprocess
+from pandarallel import pandarallel
 
 logger = logging.getLogger()
 
@@ -19,6 +20,7 @@ logger = logging.getLogger()
 
 
 def tsv_to_vcf(tsv_file):
+    pandarallel.initialize()
     df = pd.read_csv(tsv_file, sep="\t")
     is_empty = df.shape[0] == 0
     #df.insert(2, 'ID', '.')
@@ -29,7 +31,7 @@ def tsv_to_vcf(tsv_file):
     fial_columns = ['#CHROM', 'POS', 'ID', 'REF', 'ALT','QUAL', 'FILTER', 'INFO']
 
     if not is_empty:
-        df['INFO'] = df.apply(lambda x: "CODON={}-{};AA={}-{};DP={};ALT_FREQ={:.2f}".format(x.REF_CODON, x.ALT_CODON, x.REF_AA, x.ALT_AA, x.TOTAL_DP, x.ALT_FREQ), axis=1)
+        df['INFO'] = df.parallel_apply(lambda x: "CODON={}-{};AA={}-{};DP={};ALT_FREQ={:.2f}".format(x.REF_CODON, x.ALT_CODON, x.REF_AA, x.ALT_AA, x.TOTAL_DP, x.ALT_FREQ), axis=1)
     else:
         df = df.reindex(columns = fial_columns)
     df = df[fial_columns]
@@ -61,6 +63,7 @@ def import_annot_to_pandas(vcf_file, sep='\t'):
     Dependences: calculate_ALT_AD
                 calculate_true_ALT
     """
+    pandarallel.initialize()
     header_lines = 0
     with open(vcf_file) as f:
         first_line = f.readline().strip()
@@ -95,12 +98,12 @@ def import_annot_to_pandas(vcf_file, sep='\t'):
 
     #Apply function to split and recover the first 15 fields = only first anotations, the most likely
 
-    df[anlelle_headers] = df.apply(lambda x: x.INFO.split(';')[0:4], axis=1, result_type="expand")
+    df[anlelle_headers] = df.parallel_apply(lambda x: x.INFO.split(';')[0:4], axis=1, result_type="expand")
     
     for head in anlelle_headers:
         df[head] = df[head].str.split("=").str[-1]
 
-    df['TMP_ANN_16'] = df['INFO'].apply(lambda x: ('|').join(x.split('|')[0:15]))
+    df['TMP_ANN_16'] = df['INFO'].parallel_apply(lambda x: ('|').join(x.split('|')[0:15]))
 
     df.INFO = df.INFO.str.split("ANN=").str[-1]
 
@@ -111,7 +114,7 @@ def import_annot_to_pandas(vcf_file, sep='\t'):
                    .reset_index(level=1, drop=True)
                    .rename('INFO')).reset_index(drop=True)
 
-    df['TMP_ANN_16'] = df['INFO'].apply(lambda x: ('|').join(x.split('|')[0:15]))
+    df['TMP_ANN_16'] = df['INFO'].parallel_apply(lambda x: ('|').join(x.split('|')[0:15]))
     df[ann_headers] = df['TMP_ANN_16'].str.split('|', expand=True)
     df['HGVS.c'] = df['HGVS.c'].str.split(".").str[-1]
     df['HGVS.p'] = df['HGVS.p'].str.split(".").str[-1].replace('', '-')
@@ -229,6 +232,7 @@ def add_bed_info(bed_df, position):
         return None
 
 def annotate_bed_s(tsv_df, bed_files):
+    pandarallel.initialize()
     with open(tsv_df, 'r') as f:
         content = f.read().strip()
         if content == 'No annotation found':
@@ -242,7 +246,7 @@ def annotate_bed_s(tsv_df, bed_files):
             for variable_name, bed_file in zip(variable_list,bed_files):
                 logger.info("ANNOTATING BED: {}".format(bed_file))
                 bed_annot_df = bed_to_df(bed_file)
-                df[variable_name] = df['POS'].apply(lambda x: add_bed_info(bed_annot_df,x))
+                df[variable_name] = df['POS'].parallel_apply(lambda x: add_bed_info(bed_annot_df,x))
             return df
     
 
@@ -262,6 +266,7 @@ def checkAA(snpEffRow, dfAnnot):
     return (',').join(annotation_list[np.array(presence_list)])
 
 def annotate_aas(annot_file, aas):
+    pandarallel.initialize()
     df = pd.read_csv(annot_file, sep="\t")
     for aa in aas:
         
@@ -269,7 +274,7 @@ def annotate_aas(annot_file, aas):
         dfaa = pd.read_csv(aa, sep="\t", names=['aa', 'annot'])
         if not header in df.columns:
           logger.info("ANNOTATING AA: {}".format(aa))
-          df[header] = df.apply(lambda x: checkAA(x['HGVS.p'], dfaa), axis=1)
+          df[header] = df.parallel_apply(lambda x: checkAA(x['HGVS.p'], dfaa), axis=1)
         else:
           logger.info("SKIPPED AA: {}".format(aa))
 
@@ -540,6 +545,7 @@ report_samples_html = """
 """
 
 def annotation_to_html(file_annot, sample):
+    pandarallel.initialize()
     folder = ('/').join(file_annot.split('/')[0:-1])
 
     logger.debug('Adapting html in sample: {}'.format(sample))
@@ -570,7 +576,7 @@ def annotation_to_html(file_annot, sample):
             df = df[df.ALT_FREQ >= 0.2]
 
             handle_aa = lambda x: None if x != x else x.split(':')[1]
-            df.iloc[:,12:] = df.iloc[:,12:].applymap(handle_aa)
+            df.iloc[:,12:] = df.iloc[:,12:].parallel_applymap(handle_aa)
 
             df = pd.melt(df, id_vars=['#CHROM', 'POS', 'REF', 'ALT', 'Codon_change', 'AA_change', 'DP',
               'ALT_FREQ', 'Annotation', 'Annotation_Impact', 'Gene_Name', 'HGVS.p'], value_vars=df.columns[12:].tolist())

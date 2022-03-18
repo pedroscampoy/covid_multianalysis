@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import datetime
 import scipy.cluster.hierarchy as shc
 import scipy.spatial.distance as ssd  # pdist
+from pandarallel import pandarallel
 
 logger = logging.getLogger()
 
@@ -145,6 +146,7 @@ def extract_uncovered(cov_file, min_total_depth=4):
 
 
 def ddbb_create_intermediate(variant_dir, coverage_dir, min_freq_discard=0.1, min_alt_dp=4, only_snp=True):
+    pandarallel.initialize()
     df = pd.DataFrame(columns=['REGION', 'POS', 'REF', 'ALT'])
     # Merge all raw
     for root, _, files in os.walk(variant_dir):
@@ -165,9 +167,9 @@ def ddbb_create_intermediate(variant_dir, coverage_dir, min_freq_discard=0.1, mi
 
     #Remove <= 0.1 (parameter in function)
     def handle_lowfreq(x): return None if x <= min_freq_discard else x
-    df.iloc[:, 4:] = df.iloc[:, 4:].applymap(handle_lowfreq)
+    df.iloc[:, 4:] = df.iloc[:, 4:].parallel_applymap(handle_lowfreq)
     # Drop all NaN rows
-    df['AllNaN'] = df.apply(lambda x: x[4:].isnull().values.all(), axis=1)
+    df['AllNaN'] = df.parallel_apply(lambda x: x[4:].isnull().values.all(), axis=1)
     df = df[df.AllNaN == False]
     df = df.drop(['AllNaN'], axis=1).reset_index(drop=True)
 
@@ -231,10 +233,10 @@ def ddbb_create_intermediate(variant_dir, coverage_dir, min_freq_discard=0.1, mi
     if 'Position' in df.columns:
         df = df.drop('Position', axis=1)
 
-    df[['N', 'Samples']] = df.apply(
+    df[['N', 'Samples']] = df.parallel_apply(
         estract_sample_count, axis=1, result_type='expand')
 
-    df['Position'] = df.apply(lambda x: ('|').join(
+    df['Position'] = df.parallel_apply(lambda x: ('|').join(
         [x['REGION'], x['REF'], str(x['POS']), x['ALT']]), axis=1)
 
     df = df.drop(['REGION', 'REF', 'POS', 'ALT'], axis=1)
@@ -586,6 +588,7 @@ def calculate_mean_distance(row, df):
 
 
 def matrix_to_cluster(pairwise_file, matrix_file, distance=0):
+    pandarallel.initialize()
     output_dir = ('/').join(pairwise_file.split('/')[0:-1])
 
     logger.info('Reading Matrix')
@@ -598,9 +601,9 @@ def matrix_to_cluster(pairwise_file, matrix_file, distance=0):
     logger.info('Creating Clusters')
     clusters = pairwise_to_cluster(pairwise, threshold=distance)
 
-    cluster_summary = clusters.groupby('group')['id'].apply(
+    cluster_summary = clusters.groupby('group')['id'].parallel_apply(
         list).reset_index(name='samples')
-    cluster_summary['N'] = cluster_summary.apply(calculate_N, axis=1)
+    cluster_summary['N'] = cluster_summary.parallel_apply(calculate_N, axis=1)
     cluster_summary = cluster_summary.sort_values(by=['N'], ascending=False)
 
     logger.info('Reseting group number by length')
@@ -610,7 +613,7 @@ def matrix_to_cluster(pairwise_file, matrix_file, distance=0):
     cluster_summary['group'] = sorted_index
     cluster_summary = cluster_summary.sort_values(by=['N'], ascending=False)
 
-    cluster_summary[['mean', 'min', 'max']] = cluster_summary.apply(
+    cluster_summary[['mean', 'min', 'max']] = cluster_summary.parallel_apply(
         lambda x: calculate_mean_distance(x, dfdist), axis=1, result_type="expand")
 
     final_cluster = cluster_summary[["group", "samples"]].explode(
@@ -627,20 +630,21 @@ def matrix_to_cluster(pairwise_file, matrix_file, distance=0):
 
 
 def revised_df(df, out_dir=False, min_freq_include=0.7, min_threshold_discard_sample=0.4, min_threshold_discard_position=0.4, remove_faulty=True, drop_samples=True, drop_positions=True):
+    pandarallel.initialize()
     if remove_faulty == True:
 
-        uncovered_positions = df.iloc[:, 3:].apply(lambda x:  sum(
+        uncovered_positions = df.iloc[:, 3:].parallel_apply(lambda x:  sum(
             [i in ['!', '?'] for i in x.values])/len(x), axis=1)
-        heterozygous_positions = df.iloc[:, 3:].apply(lambda x: sum(
+        heterozygous_positions = df.iloc[:, 3:].parallel_apply(lambda x: sum(
             [(i not in ['!', '?', 0, 1, '0', '1']) and (float(i) < min_freq_include) for i in x.values])/len(x), axis=1)
         report_position = pd.DataFrame({'Position': df.Position, 'uncov_fract': uncovered_positions,
                                         'htz_frac': heterozygous_positions, 'faulty_frac': uncovered_positions + heterozygous_positions})
         faulty_positions = report_position['Position'][report_position.faulty_frac >=
                                                        min_threshold_discard_position].tolist()
 
-        uncovered_samples = df.iloc[:, 3:].apply(lambda x: sum(
+        uncovered_samples = df.iloc[:, 3:].parallel_apply(lambda x: sum(
             [i in ['!', '?'] for i in x.values])/len(x), axis=0)
-        heterozygous_samples = df.iloc[:, 3:].apply(lambda x: sum([(i not in ['!', '?', 0, 1, '0', '1']) and (
+        heterozygous_samples = df.iloc[:, 3:].parallel_apply(lambda x: sum([(i not in ['!', '?', 0, 1, '0', '1']) and (
             float(i) < min_freq_include) for i in x.values])/len(x), axis=0)
         report_samples = pd.DataFrame({'sample': df.iloc[:, 3:].columns, 'uncov_fract': uncovered_samples,
                                        'htz_frac': heterozygous_samples, 'faulty_frac': uncovered_samples + heterozygous_samples})
@@ -694,9 +698,9 @@ def revised_df(df, out_dir=False, min_freq_include=0.7, min_threshold_discard_sa
     # Replace Htz to 0
     # IF HANDLE HETEROZYGOUS CHANGE THIS 0 for X or 0.5
     def f(x): return 1 if x >= min_freq_include else 0
-    df.iloc[:, 3:] = df.iloc[:, 3:].applymap(f)
+    df.iloc[:, 3:] = df.iloc[:, 3:].parallel_applymap(f)
 
-    df.N = df.apply(lambda x: sum(x[3:]), axis=1)
+    df.N = df.parallel_apply(lambda x: sum(x[3:]), axis=1)
 
     # Remove positions with 0 samples after htz
     df = df[df.N > 0]
