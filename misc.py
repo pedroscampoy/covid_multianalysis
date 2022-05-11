@@ -381,12 +381,17 @@ def obtain_overal_stats(output_dir, group):
                         output_dir, x['#SAMPLE']), axis=1, result_type="expand")
                     df[['mapped_reads', 'perc_mapped', 'paired_mapped', 'perc_paired']] = df.parallel_apply(
                         lambda x: extract_mapped_reads(output_dir, x['#SAMPLE']), axis=1, result_type="expand")
-                    df[['N_groups', 'N_individual', 'N_leading', 'N_tailing', 'N_sum_len', 'N_total_perc', 'N_mean_len']] = df.parallel_apply(lambda x: extract_n_consensus(output_dir, x['#SAMPLE']), axis=1, result_type="expand")
+                    df[['N_groups', 'N_individual', 'N_leading', 'N_tailing', 'N_sum_len', 'N_total_perc', 'N_mean_len']] = df.parallel_apply(
+                        lambda x: extract_n_consensus(output_dir, x['#SAMPLE']), axis=1, result_type="expand")
 
     if previous_stat:
         df = pd.concat([df_stat, df], ignore_index=True, sort=True)
+        df = df[["#SAMPLE", "MEAN_COV", "UNMMAPED_PROP", "COV1-10X", "COV10-20X", "COV>30X", "COV>50X", "COV>100X", "COV>500X", "COV>1000X", "HQ_SNP", "HTZ_SNP", "INDELS",
+                 "mapped_reads", "perc_mapped", "paired_mapped", "perc_paired", "N_groups", "N_individual", "N_leading", "N_tailing", "N_sum_len", "N_total_perc", "N_mean_len"]]
         df.to_csv(overal_stat_file, sep="\t", index=False)
     else:
+        df = df[["#SAMPLE", "MEAN_COV", "UNMMAPED_PROP", "COV1-10X", "COV10-20X", "COV>30X", "COV>50X", "COV>100X", "COV>500X", "COV>1000X", "HQ_SNP", "HTZ_SNP", "INDELS",
+                 "mapped_reads", "perc_mapped", "paired_mapped", "perc_paired", "N_groups", "N_individual", "N_leading", "N_tailing", "N_sum_len", "N_total_perc", "N_mean_len"]]
         df.to_csv(overal_stat_file, sep="\t", index=False)
 
 
