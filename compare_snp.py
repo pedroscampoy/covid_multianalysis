@@ -1141,17 +1141,14 @@ def comp2popart(compare_file, indel=False):
     f.write(to_write)
     f.close()
 
-    # MAFFT alignment
-    os.system("mafft input.fasta > aln.fasta")
-
     # Convert alignment to nexus file
     if indel:
-        os.system("trimal -in aln.fasta -out %s.INDEL.nex -nexus" %name_file)
+        os.system("trimal -in input.fasta -out %s.INDEL.nex -nexus" %name_file)
     else:
-        os.system("trimal -in aln.fasta -out %s.nex -nexus" %name_file)
+        os.system("trimal -in input.fasta -out %s.nex -nexus" %name_file)
     
     # Remove intermediary files
-    os.system("rm input.fasta aln.fasta")
+    os.system("rm input.fasta")
 
 
 if __name__ == '__main__':
