@@ -169,7 +169,8 @@ def ddbb_create_intermediate(variant_dir, coverage_dir, min_freq_discard=0.1, mi
     def handle_lowfreq(x): return None if x <= min_freq_discard else x
     df.iloc[:, 4:] = df.iloc[:, 4:].parallel_applymap(handle_lowfreq)
     # Drop all NaN rows
-    df['AllNaN'] = df.parallel_apply(lambda x: x[4:].isnull().values.all(), axis=1)
+    df['AllNaN'] = df.parallel_apply(
+        lambda x: x[4:].isnull().values.all(), axis=1)
     df = df[df.AllNaN == False]
     df = df.drop(['AllNaN'], axis=1).reset_index(drop=True)
 
@@ -1060,6 +1061,100 @@ def ddtb_compare(final_database, distance=0, indel=False):
     # matrix_to_cluster(pairwise_file, snp_dist_file, distance=2)
 
 
+def comp2popart(compare_file, indel=False):
+    """
+    Program to transform compare output to popart input
+    """
+
+    # output path
+    name_file = compare_file.split(".")[0]
+
+    # Read DataFrame
+    df = pd.read_csv(compare_file, sep="\t")
+
+    # Drop columns N and Samples
+    df.drop(columns=["N", "Samples"], inplace=True)
+
+    # Create a column with only positions
+    df["P"] = df.Position.apply(lambda x: int(x.split("|")[-2]))
+
+    # Drop snps present in all samples
+    to_drop = []
+    for _, row in df.iterrows():
+
+        np_row = np.array(list(row)[1:-1])
+        if sum(np_row) == len(df.columns) - 2:
+            to_drop.append(_)
+    df.drop(index=to_drop, inplace=True)
+    # Sort by position
+    df.sort_values("P", ascending=True, inplace=True)
+    df.drop(columns=["P"], inplace=True)
+
+    # Transpose
+    df_t = df.T
+
+    # output_file
+    f = open("input.fasta", "w")
+
+    # Reference
+    ref = "REF"
+    seq_ref = ""
+
+    # Loop to obtain alignment
+    # Transform 0 and 1 in Ref AA and ALT AA
+    for _, row in df_t.iterrows():
+
+        # Store snp positions
+        if _ == "Position":
+            snp = list(row)
+            continue
+        sample = _
+        seq = ""
+        b = list(row)
+        # Add reference
+        if _ != "Position" and seq_ref == "":
+            for i in range(len(b)):
+                seq_ref += snp[i].split("|")[-3]
+
+        # Create fasta file
+        for i in range(len(b)):
+
+            # ALT
+            if int(b[i]):
+                # IF INDEL (No set a "-" because popart does not understand it)
+                if "-" in snp[i].split("|")[-1] or "+" in snp[i].split("|")[-1]:
+                    if snp[i].split("|")[-3] == "A":
+                        seq += "T"
+                    elif snp[i].split("|")[-3] == "T":
+                        seq += "A"
+                    elif snp[i].split("|")[-3] == "C":
+                        seq += "G"
+                    elif snp[i].split("|")[-3] == "G":
+                        seq += "C"
+                else:
+                    seq += snp[i].split("|")[-1]
+            # REF
+            else:
+                seq += snp[i].split("|")[-3]
+        to_write = ">" + sample + "\n" + seq + "\n"
+        f.write(to_write)
+
+    # Write reference
+    to_write = ">" + ref + "\n" + seq_ref + "\n"
+    f.write(to_write)
+    f.close()
+
+    # Convert alignment to nexus file
+    if indel:
+        os.system("trimal -in input.fasta -out %s.INDEL.nex -nexus" %
+                  name_file)
+    else:
+        os.system("trimal -in input.fasta -out %s.nex -nexus" % name_file)
+
+    # Remove intermediary files
+    os.system("rm input.fasta")
+
+
 if __name__ == '__main__':
     args = get_arguments()
 
@@ -1131,8 +1226,10 @@ if __name__ == '__main__':
                 compare_snp_matrix_INDEL, sep="\t", index=False)
 
             ddtb_compare(compare_snp_matrix_recal, distance=args.distance)
+            comp2popart(compare_snp_matrix_recal)
             ddtb_compare(compare_snp_matrix_INDEL,
                          distance=args.distance, indel=True)
+            comp2popart(compare_snp_matrix_INDEL, indel=True)
     else:
         compare_matrix = os.path.abspath(args.only_compare)
         ddtb_compare(compare_matrix, distance=args.distance)
