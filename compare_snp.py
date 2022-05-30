@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import datetime
 import scipy.cluster.hierarchy as shc
 import scipy.spatial.distance as ssd  # pdist
+from pandarallel import pandarallel
 
 logger = logging.getLogger()
 
@@ -145,6 +146,7 @@ def extract_uncovered(cov_file, min_total_depth=4):
 
 
 def ddbb_create_intermediate(variant_dir, coverage_dir, min_freq_discard=0.1, min_alt_dp=4, only_snp=True):
+    pandarallel.initialize()
     df = pd.DataFrame(columns=['REGION', 'POS', 'REF', 'ALT'])
     # Merge all raw
     for root, _, files in os.walk(variant_dir):
@@ -155,13 +157,19 @@ def ddbb_create_intermediate(variant_dir, coverage_dir, min_freq_discard=0.1, mi
                     filename = os.path.join(root, name)
                     dfv = import_tsv_variants(filename, only_snp=only_snp)
                     df = df.merge(dfv, how='outer')
+
     # Round frequencies
+    df = df[['REGION', 'POS', 'REF', 'ALT'] + [col for col in df.columns if col !=
+                                               'REGION' and col != 'POS' and col != 'REF' and col != 'ALT']]
+    # df.iloc[:, 4:] = df.iloc[:, 4:].apply(pd.to_numeric)
     df = df.round(2)
+    # print(df)
+
     #Remove <= 0.1 (parameter in function)
     def handle_lowfreq(x): return None if x <= min_freq_discard else x
-    df.iloc[:, 4:] = df.iloc[:, 4:].applymap(handle_lowfreq)
+    df.iloc[:, 4:] = df.iloc[:, 4:].parallel_applymap(handle_lowfreq)
     # Drop all NaN rows
-    df['AllNaN'] = df.apply(lambda x: x[4:].isnull().values.all(), axis=1)
+    df['AllNaN'] = df.parallel_apply(lambda x: x[4:].isnull().values.all(), axis=1)
     df = df[df.AllNaN == False]
     df = df.drop(['AllNaN'], axis=1).reset_index(drop=True)
 
@@ -225,10 +233,10 @@ def ddbb_create_intermediate(variant_dir, coverage_dir, min_freq_discard=0.1, mi
     if 'Position' in df.columns:
         df = df.drop('Position', axis=1)
 
-    df[['N', 'Samples']] = df.apply(
+    df[['N', 'Samples']] = df.parallel_apply(
         estract_sample_count, axis=1, result_type='expand')
 
-    df['Position'] = df.apply(lambda x: ('|').join(
+    df['Position'] = df.parallel_apply(lambda x: ('|').join(
         [x['REGION'], x['REF'], str(x['POS']), x['ALT']]), axis=1)
 
     df = df.drop(['REGION', 'REF', 'POS', 'ALT'], axis=1)
@@ -284,7 +292,6 @@ def bed_to_df(bed_file):
     df.columns = ["#CHROM", "start", "end", "description"]
 
     return df
-
 
 def remove_position_range(df):
 
@@ -580,6 +587,7 @@ def calculate_mean_distance(row, df):
 
 
 def matrix_to_cluster(pairwise_file, matrix_file, distance=0):
+    pandarallel.initialize()
     output_dir = ('/').join(pairwise_file.split('/')[0:-1])
 
     logger.info('Reading Matrix')
@@ -592,9 +600,9 @@ def matrix_to_cluster(pairwise_file, matrix_file, distance=0):
     logger.info('Creating Clusters')
     clusters = pairwise_to_cluster(pairwise, threshold=distance)
 
-    cluster_summary = clusters.groupby('group')['id'].apply(
+    cluster_summary = clusters.groupby('group')['id'].parallel_apply(
         list).reset_index(name='samples')
-    cluster_summary['N'] = cluster_summary.apply(calculate_N, axis=1)
+    cluster_summary['N'] = cluster_summary.parallel_apply(calculate_N, axis=1)
     cluster_summary = cluster_summary.sort_values(by=['N'], ascending=False)
 
     logger.info('Reseting group number by length')
@@ -604,7 +612,7 @@ def matrix_to_cluster(pairwise_file, matrix_file, distance=0):
     cluster_summary['group'] = sorted_index
     cluster_summary = cluster_summary.sort_values(by=['N'], ascending=False)
 
-    cluster_summary[['mean', 'min', 'max']] = cluster_summary.apply(
+    cluster_summary[['mean', 'min', 'max']] = cluster_summary.parallel_apply(
         lambda x: calculate_mean_distance(x, dfdist), axis=1, result_type="expand")
 
     final_cluster = cluster_summary[["group", "samples"]].explode(
@@ -621,20 +629,21 @@ def matrix_to_cluster(pairwise_file, matrix_file, distance=0):
 
 
 def revised_df(df, out_dir=False, min_freq_include=0.7, min_threshold_discard_sample=0.4, min_threshold_discard_position=0.4, remove_faulty=True, drop_samples=True, drop_positions=True):
+    pandarallel.initialize()
     if remove_faulty == True:
 
-        uncovered_positions = df.iloc[:, 3:].apply(lambda x:  sum(
+        uncovered_positions = df.iloc[:, 3:].parallel_apply(lambda x:  sum(
             [i in ['!', '?'] for i in x.values])/len(x), axis=1)
-        heterozygous_positions = df.iloc[:, 3:].apply(lambda x: sum(
+        heterozygous_positions = df.iloc[:, 3:].parallel_apply(lambda x: sum(
             [(i not in ['!', '?', 0, 1, '0', '1']) and (float(i) < min_freq_include) for i in x.values])/len(x), axis=1)
         report_position = pd.DataFrame({'Position': df.Position, 'uncov_fract': uncovered_positions,
                                         'htz_frac': heterozygous_positions, 'faulty_frac': uncovered_positions + heterozygous_positions})
         faulty_positions = report_position['Position'][report_position.faulty_frac >=
                                                        min_threshold_discard_position].tolist()
 
-        uncovered_samples = df.iloc[:, 3:].apply(lambda x: sum(
+        uncovered_samples = df.iloc[:, 3:].parallel_apply(lambda x: sum(
             [i in ['!', '?'] for i in x.values])/len(x), axis=0)
-        heterozygous_samples = df.iloc[:, 3:].apply(lambda x: sum([(i not in ['!', '?', 0, 1, '0', '1']) and (
+        heterozygous_samples = df.iloc[:, 3:].parallel_apply(lambda x: sum([(i not in ['!', '?', 0, 1, '0', '1']) and (
             float(i) < min_freq_include) for i in x.values])/len(x), axis=0)
         report_samples = pd.DataFrame({'sample': df.iloc[:, 3:].columns, 'uncov_fract': uncovered_samples,
                                        'htz_frac': heterozygous_samples, 'faulty_frac': uncovered_samples + heterozygous_samples})
@@ -688,9 +697,9 @@ def revised_df(df, out_dir=False, min_freq_include=0.7, min_threshold_discard_sa
     # Replace Htz to 0
     # IF HANDLE HETEROZYGOUS CHANGE THIS 0 for X or 0.5
     def f(x): return 1 if x >= min_freq_include else 0
-    df.iloc[:, 3:] = df.iloc[:, 3:].applymap(f)
+    df.iloc[:, 3:] = df.iloc[:, 3:].parallel_applymap(f)
 
-    df.N = df.apply(lambda x: sum(x[3:]), axis=1)
+    df.N = df.parallel_apply(lambda x: sum(x[3:]), axis=1)
 
     # Remove positions with 0 samples after htz
     df = df[df.N > 0]
@@ -1049,6 +1058,98 @@ def ddtb_compare(final_database, distance=0, indel=False):
     # matrix_to_cluster(pairwise_file, snp_dist_file, distance=1)
     # matrix_to_cluster(pairwise_file, snp_dist_file, distance=2)
 
+def comp2popart(compare_file, indel=False):
+    """
+    Program to transform compare output to popart input
+    """
+    
+    # output path
+    name_file = compare_file.split(".")[0]
+
+    # Read DataFrame
+    df = pd.read_csv(compare_file, sep="\t")
+
+    # Drop columns N and Samples
+    df.drop(columns=["N", "Samples"], inplace=True)
+
+    # Create a column with only positions
+    df["P"] = df.Position.apply(lambda x: int(x.split("|")[-2]))
+
+    # Drop snps present in all samples
+    to_drop = []
+    for _, row in df.iterrows():
+
+        np_row = np.array(list(row)[1:-1])
+        if sum(np_row) == len(df.columns) - 2:
+            to_drop.append(_)
+    df.drop(index=to_drop, inplace=True)
+    # Sort by position
+    df.sort_values("P", ascending=True, inplace=True)
+    df.drop(columns=["P"], inplace=True)
+
+    # Transpose
+    df_t = df.T
+
+    # output_file
+    f = open("input.fasta", "w")
+
+    # Reference
+    ref = "REF"
+    seq_ref = ""
+
+    # Loop to obtain alignment 
+    # Transform 0 and 1 in Ref AA and ALT AA
+    for _, row in df_t.iterrows():
+
+        # Store snp positions
+        if _ == "Position":
+            snp = list(row)
+            continue
+        sample = _
+        seq = ""
+        b = list(row)
+        # Add reference
+        if _ != "Position" and seq_ref == "":
+            for i in range(len(b)):
+                seq_ref += snp[i].split("|")[-3]
+
+        # Create fasta file 
+        for i in range(len(b)):
+
+            # ALT
+            if int(b[i]):
+                # IF INDEL (No set a "-" because popart does not understand it)
+                if "-" in snp[i].split("|")[-1] or "+" in snp[i].split("|")[-1]:
+                    if snp[i].split("|")[-3] == "A":
+                        seq += "T"
+                    elif snp[i].split("|")[-3] == "T":
+                        seq += "A"
+                    elif snp[i].split("|")[-3] == "C":
+                        seq += "G"
+                    elif snp[i].split("|")[-3] == "G":
+                        seq += "C"
+                else:
+                    seq += snp[i].split("|")[-1]
+            # REF
+            else:
+                seq += snp[i].split("|")[-3]
+        to_write = ">" + sample + "\n" + seq + "\n"
+        f.write(to_write)
+
+    # Write reference
+    to_write = ">" + ref + "\n" + seq_ref + "\n"
+    f.write(to_write)
+    f.close()
+
+    # Convert alignment to nexus file
+    if indel:
+        os.system("trimal -in input.fasta -out %s.INDEL.nex -nexus" %name_file)
+    else:
+        os.system("trimal -in input.fasta -out %s.nex -nexus" %name_file)
+    
+    # Remove intermediary files
+    os.system("rm input.fasta")
+
 
 if __name__ == '__main__':
     args = get_arguments()
@@ -1121,8 +1222,10 @@ if __name__ == '__main__':
                 compare_snp_matrix_INDEL, sep="\t", index=False)
 
             ddtb_compare(compare_snp_matrix_recal, distance=args.distance)
+            comp2popart(compare_snp_matrix_recal)
             ddtb_compare(compare_snp_matrix_INDEL,
                          distance=args.distance, indel=True)
+            comp2popart(compare_snp_matrix_INDEL, indel=True)
     else:
         compare_matrix = os.path.abspath(args.only_compare)
         ddtb_compare(compare_matrix, distance=args.distance)
