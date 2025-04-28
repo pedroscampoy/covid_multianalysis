@@ -709,6 +709,36 @@ def revised_df(df, out_dir=False, min_freq_include=0.7, min_threshold_discard_sa
     return df
 
 
+def extract_lowcov(intermediate_df):
+    df = pd.read_csv(intermediate_df, sep='\t')
+
+    # Replace Htz with 1
+    # IF HANDLE HETEROZYGOUS CHANGE THIS 0 for X or 0.5
+    def fn(x):
+        if isinstance(x, (int, float)):
+            return 1 if x > 0.5 else 0
+        else:
+            return x
+
+    df.iloc[:, 3:] = df.iloc[:, 3:].applymap(lambda x: fn(float(x)) if isinstance(x, str) and x.replace('.', '', 1).isdigit() else x)
+
+    # Crear un nuevo DataFrame para almacenar las filas filtradas
+    df_symbol = pd.DataFrame(columns=df.columns)
+
+    # Iterar sobre las filas del DataFrame
+    for index, row in df.iterrows():
+        # Filtrar los elementos diferentes de '!' y '?'
+        filtered_row = [x for x in row[3:] if x not in ['!', '?']]
+        # Verificar si todos los elementos de la fila (excluyendo '?' y '!') son iguales
+        if len(set(filtered_row)) == 1:
+            # Añadir la fila al nuevo DataFrame
+            df_symbol = pd.concat([df_symbol, pd.DataFrame([row])], ignore_index=True)
+
+    df_symbol = df_symbol[df_symbol.apply(lambda row: ('!' in row.values) or ('?' in row.values), axis=1)]
+
+    return df_symbol
+
+
 def recheck_variant_mpileup_intermediate(reference_id, position, alt_snp, sample, previous_binary, bam_folder):
     """
     http://www.htslib.org/doc/samtools-mpileup.html
@@ -1155,6 +1185,100 @@ def comp2popart(compare_file, indel=False):
     os.system("rm input.fasta")
 
 
+def comp2popart(compare_file, indel=False):
+    """
+    Program to transform compare output to popart input
+    """
+
+    # output path
+    name_file = compare_file.split(".")[0]
+
+    # Read DataFrame
+    df = pd.read_csv(compare_file, sep="\t")
+
+    # Drop columns N and Samples
+    df.drop(columns=["N", "Samples"], inplace=True)
+
+    # Create a column with only positions
+    df["P"] = df.Position.apply(lambda x: int(x.split("|")[-2]))
+
+    # Drop snps present in all samples
+    to_drop = []
+    for _, row in df.iterrows():
+
+        np_row = np.array(list(row)[1:-1])
+        if sum(np_row) == len(df.columns) - 2:
+            to_drop.append(_)
+    df.drop(index=to_drop, inplace=True)
+    # Sort by position
+    df.sort_values("P", ascending=True, inplace=True)
+    df.drop(columns=["P"], inplace=True)
+
+    # Transpose
+    df_t = df.T
+
+    # output_file
+    f = open("input.fasta", "w")
+
+    # Reference
+    ref = "REF"
+    seq_ref = ""
+
+    # Loop to obtain alignment
+    # Transform 0 and 1 in Ref AA and ALT AA
+    for _, row in df_t.iterrows():
+
+        # Store snp positions
+        if _ == "Position":
+            snp = list(row)
+            continue
+        sample = _
+        seq = ""
+        b = list(row)
+        # Add reference
+        if _ != "Position" and seq_ref == "":
+            for i in range(len(b)):
+                seq_ref += snp[i].split("|")[-3]
+
+        # Create fasta file
+        for i in range(len(b)):
+
+            # ALT
+            if int(b[i]):
+                # IF INDEL (No set a "-" because popart does not understand it)
+                if "-" in snp[i].split("|")[-1] or "+" in snp[i].split("|")[-1]:
+                    if snp[i].split("|")[-3] == "A":
+                        seq += "T"
+                    elif snp[i].split("|")[-3] == "T":
+                        seq += "A"
+                    elif snp[i].split("|")[-3] == "C":
+                        seq += "G"
+                    elif snp[i].split("|")[-3] == "G":
+                        seq += "C"
+                else:
+                    seq += snp[i].split("|")[-1]
+            # REF
+            else:
+                seq += snp[i].split("|")[-3]
+        to_write = ">" + sample + "\n" + seq + "\n"
+        f.write(to_write)
+
+    # Write reference
+    to_write = ">" + ref + "\n" + seq_ref + "\n"
+    f.write(to_write)
+    f.close()
+
+    # Convert alignment to nexus file
+    if indel:
+        os.system("trimal -in input.fasta -out %s.INDEL.nex -nexus" %
+                  name_file)
+    else:
+        os.system("trimal -in input.fasta -out %s.nex -nexus" % name_file)
+
+    # Remove intermediary files
+    os.system("rm input.fasta")
+
+
 if __name__ == '__main__':
     args = get_arguments()
 
@@ -1205,25 +1329,46 @@ if __name__ == '__main__':
             compare_snp_matrix_recal_intermediate = group_compare + ".revised_intermediate.tsv"
             compare_snp_matrix_INDEL_intermediate = group_compare + \
                 ".revised_INDEL_intermediate.tsv"
+
             recalibrated_snp_matrix_intermediate = ddbb_create_intermediate(
                 input_dir, coverage_dir, min_freq_discard=0.1, min_alt_dp=4, only_snp=args.only_snp)
+
             if args.remove_bed:
                 recalibrated_snp_matrix_intermediate = remove_bed_positions(
                     recalibrated_snp_matrix_intermediate, args.remove_bed)
             recalibrated_snp_matrix_intermediate.to_csv(
                 compare_snp_matrix_recal_intermediate, sep="\t", index=False)
+
             compare_snp_matrix_INDEL_intermediate_df = remove_position_range(
                 recalibrated_snp_matrix_intermediate)
             compare_snp_matrix_INDEL_intermediate_df.to_csv(
                 compare_snp_matrix_INDEL_intermediate, sep="\t", index=False)
+
+            # Extract all low coverage o not covered positions
+            symbol_file = group_compare + '_symbol_lowcov.tsv'
+            symbol_lowcov = extract_lowcov(compare_snp_matrix_recal_intermediate) # It is made by the INDEL_intermediate.tsv, taking 0 and 1 into account, can also be made with intermediate.highfreq.tsv
+            symbol_lowcov.to_csv(symbol_file, sep='\t', index=False)
+
             recalibrated_revised_df = revised_df(recalibrated_snp_matrix_intermediate, output_dir, min_freq_include=0.7,
-                                                 min_threshold_discard_sample=0.4, min_threshold_discard_position=0.4, remove_faulty=True, drop_samples=True, drop_positions=True)
-            recalibrated_revised_df.to_csv(
-                compare_snp_matrix_recal, sep="\t", index=False)
+                                                 min_threshold_discard_sample=0.5, min_threshold_discard_position=0.5, remove_faulty=True, drop_samples=True, drop_positions=True)
+            #recalibrated_revised_df.to_csv(compare_snp_matrix_recal, sep="\t", index=False)
+
+            recalibrated_revised_df = recalibrated_revised_df[~recalibrated_revised_df['Position'].isin(symbol_lowcov['Position'])]
+            recalibrated_revised_df.to_csv(compare_snp_matrix_recal, sep='\t', index=False)
+
+
+            # Extract all low coverage o not covered positions
+            symbol_INDEL_file = group_compare + '_symbol_INDEL_lowcov.tsv'
+            symbol_INDEL_lowcov = extract_lowcov(compare_snp_matrix_INDEL_intermediate) # It is made by the INDEL_intermediate.tsv, taking 0 and 1 into account, can also be made with intermediate.highfreq.tsv
+            symbol_INDEL_lowcov.to_csv(symbol_INDEL_file, sep='\t', index=False)
+
             recalibrated_revised_INDEL_df = revised_df(compare_snp_matrix_INDEL_intermediate_df, output_dir, min_freq_include=0.7,
-                                                       min_threshold_discard_sample=0.4, min_threshold_discard_position=0.4, remove_faulty=True, drop_samples=True, drop_positions=True)
-            recalibrated_revised_INDEL_df.to_csv(
-                compare_snp_matrix_INDEL, sep="\t", index=False)
+                                                       min_threshold_discard_sample=0.5, min_threshold_discard_position=0.5, remove_faulty=True, drop_samples=True, drop_positions=True)
+            # recalibrated_revised_INDEL_df.to_csv(compare_snp_matrix_INDEL, sep="\t", index=False)
+
+            recalibrated_revised_INDEL_df = recalibrated_revised_INDEL_df[~recalibrated_revised_INDEL_df['Position'].isin(symbol_INDEL_lowcov['Position'])]
+            recalibrated_revised_INDEL_df.to_csv(compare_snp_matrix_INDEL, sep='\t', index=False)
+
 
             ddtb_compare(compare_snp_matrix_recal, distance=args.distance)
             comp2popart(compare_snp_matrix_recal)

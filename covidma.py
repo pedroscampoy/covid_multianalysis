@@ -24,7 +24,7 @@ from bam_variant import picard_dictionary, samtools_faidx, picard_markdup, ivar_
 from vcf_process import filter_tsv_variants
 from annotation import annotate_snpeff, annotate_pangolin, user_annotation, user_annotation_aa, annotation_to_html, \
     report_samples_html
-from compare_snp import ddtb_add, ddtb_compare, ddbb_create_intermediate, revised_df, remove_position_range
+from compare_snp import ddtb_add, ddtb_compare, ddbb_create_intermediate, revised_df, remove_position_range, extract_lowcov
 
 """
 =============================================================
@@ -89,7 +89,7 @@ def main():
                                  required=False, help='Sample to identify further files')
         input_group.add_argument('-L', '--sample_list', type=str, required=False,
                                  help='Sample names to analyse only in the file supplied')
-        input_group.add_argument('-p', '--primers', type=str, default='/home/laura/DATABASES/Anotacion/COVID/primers/nCoV-2019.bed',
+        input_group.add_argument('-p', '--primers', type=str, default='~/DATABASES/REFERENCES/COVID/primers/SARS-CoV-2.primer.bed',
                                  required=False, help='Bed file including primers to trim')
 
         quality_group = parser.add_argument_group(
@@ -304,7 +304,7 @@ def main():
                 else:
                     logger.info(
                         GREEN + "Checking quality in sample " + sample + END_FORMATTING)
-                    logger.info("R1: " + r1_file + "\nR2: " + r2_file)
+                    # logger.info("R1: " + r1_file + "\nR2: " + r2_file)
                     fastqc_quality(r1_file, r2_file,
                                    out_qc_pre_dir, args.threads)
 
@@ -347,8 +347,8 @@ def main():
                 else:
                     logger.info(
                         GREEN + "Checking quality in processed sample " + sample + END_FORMATTING)
-                    logger.info("R1: " + output_trimming_file_r1 +
-                                "\nR2: " + output_trimming_file_r2)
+                    # logger.info("R1: " + output_trimming_file_r1 +
+                    #             "\nR2: " + output_trimming_file_r2)
                     fastqc_quality(
                         output_trimming_file_r1, output_trimming_file_r2, out_qc_post_dir, args.threads)
 
@@ -363,8 +363,8 @@ def main():
                 else:
                     logger.info(GREEN + "Mapping sample " +
                                 sample + END_FORMATTING)
-                    logger.info("R1: " + output_trimming_file_r1 + "\nR2: " +
-                                output_trimming_file_r2 + "\nReference: " + reference)
+                    # logger.info("R1: " + output_trimming_file_r1 + "\nR2: " +
+                    #             output_trimming_file_r2 + "\nReference: " + reference)
                     bwa_mapping(output_trimming_file_r1, output_trimming_file_r2,
                                 reference, sample, out_map_dir, threads=args.threads)
                     sam_to_index_bam(
@@ -382,7 +382,7 @@ def main():
                 else:
                     logger.info(GREEN + "Marking Dupes in sample " +
                                 sample + END_FORMATTING)
-                    logger.info("Input Bam: " + output_map_file)
+                    # logger.info("Input Bam: " + output_map_file)
                     picard_markdup(output_map_file)
 
                 #TRIM PRIMERS WITH ivar trim ########################
@@ -394,9 +394,9 @@ def main():
                 else:
                     logger.info(
                         GREEN + "Trimming primers in sample " + sample + END_FORMATTING)
-                    logger.info("Input Bam: " + output_markdup_file)
+                    # logger.info("Input Bam: " + output_markdup_file)
                     ivar_trim(output_markdup_file, args.primers, sample,
-                              min_length=30, min_quality=20, sliding_window_width=4)
+                              min_length=30, min_quality=20, sliding_window_width=4)  # output_markdup_file / output_map_file
             else:
                 logger.info(YELLOW + DIM + output_markdup_trimmed_file +
                             " EXIST\nOmmiting BAM mapping and BAM manipulation in sample " + sample + END_FORMATTING)
@@ -523,8 +523,8 @@ def main():
     # SNPEFF
     if args.snpeff_database != False:
         # CHANGE FOR RAW/FILTERED ANNOTATION
-        for root, _, files in os.walk(out_filtered_ivar_dir):
-            if root == out_filtered_ivar_dir:  # CHANGE FOR RAW/FILTERED ANNOTATION
+        for root, _, files in os.walk(out_variant_ivar_dir):
+            if root == out_variant_ivar_dir:  # CHANGE FOR RAW/FILTERED ANNOTATION
                 for name in files:
                     if name.endswith('.tsv'):
                         sample = name.split('.')[0]
@@ -611,22 +611,22 @@ def main():
                     # annotate_pangolin(filename, out_annot_pangolin_dir,
                     #                out_pangolin_filename, threads=args.threads, max_ambig=0.6)
 
-    # USER AA TO HTML
-    annotated_samples = []
-    logger.info('Adapting annotation to html in {}'.format(group_name))
-    for root, _, files in os.walk(out_annot_user_aa_dir):
-        if root == out_annot_user_aa_dir:
-            for name in files:
-                if name.endswith('.tsv'):
-                    sample = name.split('.')[0]
-                    annotated_samples.append(sample)
-                    filename = os.path.join(root, name)
-                    annotation_to_html(filename, sample)
-    annotated_samples = [str(x) for x in annotated_samples]
-    report_samples_html_all = report_samples_html.replace(
-        'ALLSAMPLES', ('","').join(annotated_samples))  # NEW
-    with open(os.path.join(out_annot_user_aa_dir, '00_all_samples.html'), 'w+') as f:
-        f.write(report_samples_html_all)
+    # # USER AA TO HTML
+    # annotated_samples = []
+    # logger.info('Adapting annotation to html in {}'.format(group_name))
+    # for root, _, files in os.walk(out_annot_user_aa_dir):
+    #     if root == out_annot_user_aa_dir:
+    #         for name in files:
+    #             if name.endswith('.tsv'):
+    #                 sample = name.split('.')[0]
+    #                 annotated_samples.append(sample)
+    #                 filename = os.path.join(root, name)
+    #                 annotation_to_html(filename, sample)
+    # annotated_samples = [str(x) for x in annotated_samples]
+    # report_samples_html_all = report_samples_html.replace(
+    #     'ALLSAMPLES', ('","').join(annotated_samples))  # NEW
+    # with open(os.path.join(out_annot_user_aa_dir, '00_all_samples.html'), 'w+') as f:
+    #     f.write(report_samples_html_all)
 
     # SNP COMPARISON using tsv variant files
     ######################################################
@@ -645,22 +645,41 @@ def main():
     compare_snp_matrix_recal_intermediate = full_path_compare + ".revised_intermediate.tsv"
     compare_snp_matrix_INDEL_intermediate = full_path_compare + \
         ".revised_INDEL_intermediate.tsv"
+
     recalibrated_snp_matrix_intermediate = ddbb_create_intermediate(
         out_variant_ivar_dir, out_stats_coverage_dir, min_freq_discard=0.1, min_alt_dp=4, only_snp=args.only_snp)
     recalibrated_snp_matrix_intermediate.to_csv(
         compare_snp_matrix_recal_intermediate, sep="\t", index=False)
+
     compare_snp_matrix_INDEL_intermediate_df = remove_position_range(
         recalibrated_snp_matrix_intermediate)
     compare_snp_matrix_INDEL_intermediate_df.to_csv(
         compare_snp_matrix_INDEL_intermediate, sep="\t", index=False)
+
+    # Extract all low coverage o not covered positions
+    symbol_file = full_path_compare + '_symbol_lowcov.tsv'
+    symbol_lowcov = extract_lowcov(compare_snp_matrix_recal_intermediate) # It is made by the INDEL_intermediate.tsv, taking 0 and 1 into account, can also be made with intermediate.highfreq.tsv
+    symbol_lowcov.to_csv(symbol_file, sep='\t', index=False)
+    
     recalibrated_revised_df = revised_df(recalibrated_snp_matrix_intermediate, path_compare, min_freq_include=0.7,
-                                         min_threshold_discard_sample=0.07, min_threshold_discard_position=0.4, remove_faulty=True, drop_samples=True, drop_positions=True)
-    recalibrated_revised_df.to_csv(
-        compare_snp_matrix_recal, sep="\t", index=False)
+                                         min_threshold_discard_sample=0.5, min_threshold_discard_position=0.4, remove_faulty=True, drop_samples=True, drop_positions=True)
+    # recalibrated_revised_df.to_csv(compare_snp_matrix_recal, sep="\t", index=False)
+
+    recalibrated_revised_df = recalibrated_revised_df[~recalibrated_revised_df['Position'].isin(symbol_lowcov['Position'])]
+    recalibrated_revised_df.to_csv(compare_snp_matrix_recal, sep='\t', index=False)
+
+    # Extract all low coverage o not covered positions
+    symbol_INDEL_file = full_path_compare + '_symbol_INDEL_lowcov.tsv'
+    symbol_INDEL_lowcov = extract_lowcov(compare_snp_matrix_INDEL_intermediate) # It is made by the INDEL_intermediate.tsv, taking 0 and 1 into account, can also be made with intermediate.highfreq.tsv
+    symbol_INDEL_lowcov.to_csv(symbol_INDEL_file, sep='\t', index=False)
+
     recalibrated_revised_INDEL_df = revised_df(compare_snp_matrix_INDEL_intermediate_df, path_compare, min_freq_include=0.7,
-                                               min_threshold_discard_sample=0.07, min_threshold_discard_position=0.4, remove_faulty=True, drop_samples=True, drop_positions=True)
-    recalibrated_revised_INDEL_df.to_csv(
-        compare_snp_matrix_INDEL, sep="\t", index=False)
+                                               min_threshold_discard_sample=0.5, min_threshold_discard_position=0.4, remove_faulty=True, drop_samples=True, drop_positions=True)
+    # recalibrated_revised_INDEL_df.to_csv(compare_snp_matrix_INDEL, sep="\t", index=False)
+
+    recalibrated_revised_INDEL_df = recalibrated_revised_INDEL_df[~recalibrated_revised_INDEL_df['Position'].isin(symbol_INDEL_lowcov['Position'])]
+    recalibrated_revised_INDEL_df.to_csv(compare_snp_matrix_INDEL, sep='\t', index=False)
+
 
     ddtb_compare(compare_snp_matrix_recal, distance=0)
     ddtb_compare(compare_snp_matrix_INDEL, distance=0, indel=True)
